@@ -1,10 +1,9 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 
 Window {
     id: root
-    width: shellMode === "orb" ? 142 : shellMode === "quick" ? 292 : 332
-    height: shellMode === "orb" ? 146 : shellMode === "quick" ? 236 : 334
     visible: true
     color: "transparent"
     flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
@@ -13,32 +12,45 @@ Window {
     property string shellMode: "orb"
     property string visualState: appState.muted ? "muted" : appState.status
     property real ambientPhase: 0
-    property real audioPhase: 0
-    property color accentColor: accentFor(visualState)
-    property color panelTint: softAccentFor(visualState)
+    property real wavePhase: 0
+
+    readonly property bool panelVisible: shellMode !== "orb"
+    readonly property bool fullPanel: shellMode === "full"
+    readonly property int shellPadding: 18
+    readonly property int panelOverlap: panelVisible ? 28 : 0
+    readonly property int orbSceneWidth: 162
+    readonly property int orbSceneHeight: 154
+    readonly property int compactPanelWidth: 336
+    readonly property int fullPanelWidth: 392
+    readonly property int panelTargetWidth: fullPanel ? fullPanelWidth : compactPanelWidth
+    readonly property color accentColor: accentFor(visualState)
+    readonly property color panelTint: softAccentFor(visualState)
+
+    width: shellPadding * 2 + Math.max(orbSceneWidth, panelVisible ? panelTargetWidth : 0)
+    height: shellPadding * 2 + orbSceneHeight + (panelVisible ? panelStack.implicitHeight - panelOverlap : 0)
 
     function accentFor(stateKey) {
         if (stateKey === "listening")
-            return "#78d6ff"
+            return "#7ad9ff"
         if (stateKey === "thinking")
-            return "#74a9ff"
+            return "#81adff"
         if (stateKey === "speaking")
-            return "#49c2ff"
+            return "#54c8ff"
         if (stateKey === "muted")
-            return "#8b97ab"
-        return "#c8d7ea"
+            return "#8f9eb2"
+        return "#d4e0f1"
     }
 
     function softAccentFor(stateKey) {
         if (stateKey === "listening")
-            return "#14344d"
+            return "#153147"
         if (stateKey === "thinking")
-            return "#172847"
+            return "#182844"
         if (stateKey === "speaking")
-            return "#0f3347"
+            return "#112f43"
         if (stateKey === "muted")
-            return "#1b2230"
-        return "#121c2c"
+            return "#1d2430"
+        return "#131b28"
     }
 
     function statusLabel(stateKey) {
@@ -65,58 +77,58 @@ Window {
         return "Standing by."
     }
 
-    function toggleQuickPanel() {
-        root.shellMode = root.shellMode === "orb" ? "quick" : "orb"
+    function toggleCompactPanel() {
+        root.shellMode = root.shellMode === "orb" ? "compact" : "orb"
     }
 
     function toggleFullPanel() {
-        root.shellMode = root.shellMode === "full" ? "quick" : "full"
+        root.shellMode = root.shellMode === "full" ? "compact" : "full"
     }
 
     NumberAnimation on ambientPhase {
         from: 0
         to: Math.PI * 2
-        duration: 5400
+        duration: 5600
         loops: Animation.Infinite
         running: !appState.muted
     }
 
-    NumberAnimation on audioPhase {
+    NumberAnimation on wavePhase {
         from: 0
         to: Math.PI * 2
-        duration: root.visualState === "speaking" ? 960 : 1320
+        duration: visualState === "speaking" ? 920 : 1320
         loops: Animation.Infinite
-        running: root.visualState === "listening" || root.visualState === "speaking"
+        running: visualState === "listening" || visualState === "speaking"
     }
 
     Behavior on width {
         NumberAnimation {
-            duration: 180
+            duration: 190
             easing.type: Easing.OutCubic
         }
     }
 
     Behavior on height {
         NumberAnimation {
-            duration: 180
+            duration: 190
             easing.type: Easing.OutCubic
         }
     }
 
-    component GhostButton : Button {
+    component ControlButton : Button {
         id: control
 
-        property color glowColor: "#6fcfff"
-        property bool danger: false
-        property bool prominent: false
+        property string tone: "neutral"
 
-        implicitWidth: prominent ? 58 : 50
-        implicitHeight: 30
+        implicitWidth: Math.max(54, label.implicitWidth + 24)
+        implicitHeight: 34
         padding: 0
 
         contentItem: Text {
+            id: label
+
             text: control.text
-            color: control.danger ? "#ffd0d0" : control.prominent ? "#f7fbff" : "#d6e4f5"
+            color: tone === "danger" ? "#ffd5d5" : tone === "accent" ? "#f6fbff" : "#d6e4f3"
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             font.family: "Bahnschrift"
@@ -125,10 +137,10 @@ Window {
         }
 
         background: Rectangle {
-            radius: 15
-            color: control.danger ? (control.down ? "#231218" : "#16111a") : control.prominent ? (control.down ? "#132238" : "#101d30") : (control.down ? "#101827" : "#0c1422")
+            radius: 17
+            color: tone === "danger" ? (control.down ? "#241218" : "#171017") : tone === "accent" ? (control.down ? "#14253a" : "#102033") : (control.down ? "#101926" : "#0c1522")
             border.width: 1
-            border.color: control.danger ? Qt.rgba(0.85, 0.28, 0.33, 0.55) : control.prominent ? Qt.rgba(0.46, 0.76, 1.0, 0.45) : Qt.rgba(0.58, 0.74, 0.92, 0.15)
+            border.color: tone === "danger" ? Qt.rgba(0.83, 0.26, 0.32, 0.56) : tone === "accent" ? Qt.rgba(0.48, 0.77, 1.0, 0.46) : Qt.rgba(0.58, 0.72, 0.9, 0.17)
 
             Rectangle {
                 anchors.left: parent.left
@@ -136,7 +148,40 @@ Window {
                 anchors.top: parent.top
                 height: parent.height / 2
                 radius: parent.radius
-                color: control.danger ? Qt.rgba(1.0, 0.64, 0.64, 0.05) : Qt.rgba(0.93, 0.98, 1.0, control.prominent ? 0.06 : 0.03)
+                color: tone === "danger" ? Qt.rgba(1.0, 0.62, 0.62, 0.04) : tone === "accent" ? Qt.rgba(0.92, 0.98, 1.0, 0.06) : Qt.rgba(0.92, 0.98, 1.0, 0.03)
+            }
+        }
+    }
+
+    component StatusPill : Rectangle {
+        implicitWidth: statusRow.implicitWidth + 20
+        implicitHeight: 34
+        radius: 17
+        color: Qt.rgba(0.09, 0.15, 0.23, 0.74)
+        border.width: 1
+        border.color: Qt.rgba(0.62, 0.77, 0.97, 0.12)
+
+        Row {
+            id: statusRow
+
+            anchors.centerIn: parent
+            spacing: 8
+
+            Rectangle {
+                width: 8
+                height: 8
+                radius: 4
+                anchors.verticalCenter: parent.verticalCenter
+                color: root.accentColor
+            }
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.statusLabel(root.visualState)
+                color: "#eef5ff"
+                font.family: "Bahnschrift"
+                font.pixelSize: 12
+                font.weight: Font.DemiBold
             }
         }
     }
@@ -145,570 +190,534 @@ Window {
         anchors.fill: parent
         color: "transparent"
 
-        Rectangle {
-            id: connectorStem
+        Item {
+            id: shellScene
 
-            anchors.horizontalCenter: parent.horizontalCenter
-            y: 92
-            width: shellMode === "full" ? 18 : 14
-            height: shellMode === "orb" ? 0 : 34
-            radius: width / 2
-            color: root.accentColor
-            opacity: shellMode === "full" ? 0.15 : 0.1
-            visible: shellMode !== "orb"
+            anchors.centerIn: parent
+            width: Math.max(root.orbSceneWidth, root.panelVisible ? panelStack.implicitWidth : 0)
+            height: root.orbSceneHeight + (root.panelVisible ? panelStack.implicitHeight - root.panelOverlap : 0)
 
-            Behavior on height {
-                NumberAnimation {
-                    duration: 160
-                }
-            }
-        }
+            Item {
+                id: orbScene
 
-        Rectangle {
-            id: connectorDockAura
-
-            anchors.horizontalCenter: parent.horizontalCenter
-            y: 102
-            width: shellMode === "full" ? 120 : 108
-            height: shellMode === "orb" ? 0 : 34
-            radius: 17
-            color: root.accentColor
-            opacity: shellMode === "full" ? 0.08 : 0.06
-            visible: shellMode !== "orb"
-        }
-
-        Rectangle {
-            id: connectorDock
-
-            anchors.horizontalCenter: parent.horizontalCenter
-            y: 106
-            width: shellMode === "full" ? 112 : 100
-            height: shellMode === "orb" ? 0 : 28
-            radius: 14
-            color: "#09121d"
-            border.width: shellMode === "orb" ? 0 : 1
-            border.color: Qt.rgba(0.72, 0.84, 1.0, 0.08)
-            visible: shellMode !== "orb"
-        }
-
-        Rectangle {
-            id: panelAura
-
-            anchors.horizontalCenter: parent.horizontalCenter
-            y: 116
-            width: shellMode === "full" ? 320 : 282
-            height: shellMode === "full" ? 208 : 112
-            radius: shellMode === "full" ? 32 : 24
-            color: root.accentColor
-            opacity: shellMode === "orb" ? 0 : 0.045
-            scale: shellMode === "orb" ? 0.92 : 1.0
-            visible: shellMode !== "orb"
-
-            Behavior on opacity {
-                NumberAnimation {
-                    duration: 160
-                }
-            }
-
-            Behavior on scale {
-                NumberAnimation {
-                    duration: 180
-                }
-            }
-        }
-
-        Rectangle {
-            id: panel
-
-            anchors.horizontalCenter: parent.horizontalCenter
-            y: 120
-            width: shellMode === "full" ? 308 : 270
-            height: shellMode === "full" ? 196 : 108
-            radius: shellMode === "full" ? 28 : 22
-            visible: shellMode !== "orb"
-            opacity: shellMode === "orb" ? 0 : 1
-            color: "#07101a"
-            border.width: 1
-            border.color: Qt.rgba(0.64, 0.8, 1.0, 0.08)
-
-            gradient: Gradient {
-                GradientStop {
-                    position: 0.0
-                    color: Qt.rgba(0.045, 0.08, 0.13, 0.92)
-                }
-                GradientStop {
-                    position: 1.0
-                    color: Qt.rgba(0.025, 0.045, 0.08, 0.95)
-                }
-            }
-
-            Behavior on opacity {
-                NumberAnimation {
-                    duration: 140
-                }
-            }
-
-            Rectangle {
-                anchors.horizontalCenter: parent.horizontalCenter
                 anchors.top: parent.top
-                anchors.topMargin: 8
-                width: shellMode === "full" ? 88 : 74
-                height: 4
-                radius: 2
-                color: Qt.rgba(0.86, 0.93, 1.0, 0.12)
-            }
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: root.orbSceneWidth
+                height: root.orbSceneHeight
 
-            Column {
-                anchors.fill: parent
-                anchors.margins: 14
-                spacing: shellMode === "full" ? 11 : 10
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.LeftButton
 
-                Row {
-                    width: parent.width
-                    height: 30
-                    spacing: 10
+                    onPressed: mouse => {
+                        if (mouse.button === Qt.LeftButton) {
+                            root.startSystemMove()
+                        }
+                    }
+
+                    onClicked: root.toggleCompactPanel()
+                }
+
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 142
+                    height: 142
+                    radius: 71
+                    color: root.accentColor
+                    opacity: appState.muted ? 0.04 : 0.028
+                    scale: 0.92 + Math.abs(Math.sin(root.ambientPhase + 0.8)) * 0.09
+                }
+
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 126
+                    height: 126
+                    radius: 63
+                    color: root.accentColor
+                    opacity: appState.muted ? 0.05 : visualState === "speaking" ? 0.08 : 0.055
+                    scale: 0.95 + Math.abs(Math.sin(root.ambientPhase)) * 0.06
+                }
+
+                Item {
+                    anchors.centerIn: parent
+                    width: 130
+                    height: 130
+                    rotation: root.ambientPhase * 10
+                    opacity: appState.muted ? 0.12 : 0.28
+
+                    Repeater {
+                        model: 3
+
+                        Rectangle {
+                            width: index === 0 ? 5 : 4
+                            height: width
+                            radius: width / 2
+                            color: index === 0 ? "#f2f8ff" : root.accentColor
+                            x: parent.width / 2 - width / 2 + Math.cos(index / 3 * Math.PI * 2 + 0.55) * 56
+                            y: parent.height / 2 - height / 2 + Math.sin(index / 3 * Math.PI * 2 + 0.55) * 56
+                        }
+                    }
+                }
+
+                Item {
+                    anchors.centerIn: parent
+                    width: 126
+                    height: 126
+                    visible: root.visualState === "thinking"
+                    rotation: root.ambientPhase * 57.2958
+
+                    Repeater {
+                        model: 8
+
+                        Rectangle {
+                            width: index % 2 === 0 ? 7 : 5
+                            height: width
+                            radius: width / 2
+                            color: index % 2 === 0 ? "#89d7ff" : "#7fa9ff"
+                            opacity: index % 2 === 0 ? 0.94 : 0.58
+                            x: parent.width / 2 - width / 2 + Math.cos(index / 8 * Math.PI * 2) * 54
+                            y: parent.height / 2 - height / 2 + Math.sin(index / 8 * Math.PI * 2) * 54
+                        }
+                    }
+                }
+
+                Item {
+                    anchors.centerIn: parent
+                    width: 132
+                    height: 132
+                    visible: root.visualState === "listening" || root.visualState === "speaking"
+
+                    Repeater {
+                        model: 20
+
+                        Rectangle {
+                            property real intensity: (Math.sin(root.wavePhase + index * 0.3) + 1) / 2
+
+                            width: 2
+                            height: root.visualState === "speaking" ? 7 + intensity * 16 : 5 + intensity * 10
+                            radius: 1
+                            color: root.accentColor
+                            opacity: root.visualState === "speaking" ? 0.9 : 0.66
+                            x: parent.width / 2 - width / 2 + Math.cos(index / 20 * Math.PI * 2) * 57
+                            y: parent.height / 2 - height / 2 + Math.sin(index / 20 * Math.PI * 2) * 57
+
+                            transform: Rotation {
+                                angle: index / 20 * 360 + 90
+                                origin.x: width / 2
+                                origin.y: height / 2
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 108
+                    height: 108
+                    radius: 54
+                    color: "transparent"
+                    border.width: 1
+                    border.color: Qt.rgba(0.86, 0.93, 1.0, 0.18)
+                }
+
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 88
+                    height: 88
+                    radius: 44
+                    color: "#0a1320"
+                    border.width: 1
+                    border.color: Qt.rgba(0.9, 0.96, 1.0, 0.17)
+
+                    gradient: Gradient {
+                        GradientStop {
+                            position: 0.0
+                            color: Qt.rgba(0.09, 0.15, 0.23, 0.97)
+                        }
+
+                        GradientStop {
+                            position: 1.0
+                            color: Qt.rgba(0.03, 0.06, 0.11, 0.985)
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: 34
+                    height: 6
+                    radius: 3
+                    color: Qt.rgba(0.92, 0.98, 1.0, 0.11)
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.top: parent.top
+                    anchors.topMargin: 30
+                    rotation: -18
+                }
+
+                Column {
+                    anchors.centerIn: parent
+                    spacing: 2
+
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: "AVA"
+                        color: "#f8fbff"
+                        font.family: "Bahnschrift"
+                        font.pixelSize: root.panelVisible ? 23 : 21
+                        font.weight: Font.DemiBold
+                    }
+
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: root.statusLabel(root.visualState)
+                        color: "#9db3cb"
+                        font.family: "Segoe UI Variable"
+                        font.pixelSize: 10
+                        visible: root.panelVisible
+                    }
+                }
+
+                Rectangle {
+                    anchors.right: parent.right
+                    anchors.rightMargin: 24
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 20
+                    width: 11
+                    height: 11
+                    radius: 5.5
+                    color: root.accentColor
+                    opacity: appState.muted ? 0.58 : 0.98
 
                     Rectangle {
-                        width: shellMode === "full" ? 96 : 92
-                        height: 28
-                        radius: 14
-                        color: Qt.rgba(0.08, 0.14, 0.22, 0.7)
+                        anchors.centerIn: parent
+                        width: 19
+                        height: 19
+                        radius: 9.5
+                        color: "transparent"
                         border.width: 1
-                        border.color: Qt.rgba(0.6, 0.76, 0.96, 0.12)
-
-                        Row {
-                            anchors.centerIn: parent
-                            spacing: 7
-
-                            Rectangle {
-                                width: 7
-                                height: 7
-                                radius: 3.5
-                                anchors.verticalCenter: parent.verticalCenter
-                                color: root.accentColor
-                            }
-
-                            Text {
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: root.statusLabel(root.visualState)
-                                color: "#eef5ff"
-                                font.family: "Bahnschrift"
-                                font.pixelSize: 12
-                                font.weight: Font.DemiBold
-                            }
-                        }
-                    }
-
-                    Item {
-                        width: shellMode === "full" ? 46 : 24
-                        height: 1
-                    }
-
-                    Row {
-                        spacing: 6
-
-                        GhostButton {
-                            width: appState.muted ? 60 : 50
-                            text: appState.muted ? "Unmute" : "Mute"
-                            onClicked: uiBridge.toggleMute()
-                        }
-
-                        GhostButton {
-                            width: 54
-                            text: "Stop"
-                            danger: true
-                            prominent: true
-                            onClicked: uiBridge.emergencyStop()
-                        }
-
-                        GhostButton {
-                            width: shellMode === "full" ? 48 : 52
-                            text: shellMode === "full" ? "Less" : "More"
-                            onClicked: root.toggleFullPanel()
-                        }
+                        border.color: Qt.rgba(root.accentColor.r, root.accentColor.g, root.accentColor.b, 0.18)
                     }
                 }
+            }
 
-                Text {
-                    width: parent.width
-                    text: root.statusMessage(root.visualState)
-                    color: "#91a5bd"
-                    font.family: "Segoe UI Variable"
-                    font.pixelSize: 11
+            Item {
+                id: panelStack
+
+                anchors.top: orbScene.bottom
+                anchors.topMargin: -root.panelOverlap
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: root.panelVisible
+                implicitWidth: root.panelTargetWidth
+                implicitHeight: bridgeHalo.implicitHeight + panelCard.implicitHeight + 12
+                width: implicitWidth
+                height: implicitHeight
+
+                Rectangle {
+                    id: bridgeHalo
+
+                    anchors.top: parent.top
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    implicitWidth: root.fullPanel ? 168 : 148
+                    implicitHeight: 42
+                    width: implicitWidth
+                    height: implicitHeight
+                    radius: 21
+                    color: root.accentColor
+                    opacity: 0.055
                 }
 
                 Rectangle {
-                    width: parent.width
-                    height: 48
-                    radius: 15
-                    color: Qt.rgba(0.08, 0.12, 0.19, 0.78)
+                    anchors.top: parent.top
+                    anchors.topMargin: 10
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: root.fullPanel ? 126 : 110
+                    height: 24
+                    radius: 12
+                    color: "#0a1320"
                     border.width: 1
-                    border.color: Qt.rgba(0.61, 0.75, 0.92, 0.05)
-
-                    Column {
-                        anchors.fill: parent
-                        anchors.margins: 10
-                        spacing: 2
-
-                        Text {
-                            width: parent.width
-                            text: appState.lastResponse.length > 0 ? appState.lastResponse : "Ava ready."
-                            color: "#f4f8ff"
-                            elide: Text.ElideRight
-                            font.family: "Segoe UI Variable"
-                            font.pixelSize: 12
-                        }
-
-                        Text {
-                            width: parent.width
-                            text: appState.lastCommand.length > 0 ? appState.lastCommand : "Voice-first fallback available."
-                            color: "#6f8397"
-                            elide: Text.ElideRight
-                            font.family: "Segoe UI Variable"
-                            font.pixelSize: 9
-                        }
-                    }
-                }
-
-                Row {
-                    width: parent.width
-                    spacing: 8
-
-                    TextField {
-                        id: commandInput
-
-                        width: parent.width - sendButton.width - 8
-                        height: 38
-                        placeholderText: "Type a command"
-                        color: "#f4f8ff"
-                        placeholderTextColor: "#62768e"
-                        selectByMouse: true
-                        font.family: "Segoe UI Variable"
-                        font.pixelSize: 13
-                        onAccepted: {
-                            uiBridge.submitTextCommand(commandInput.text)
-                            commandInput.clear()
-                        }
-                        onActiveFocusChanged: uiBridge.commandInputFocusChanged(activeFocus)
-
-                        background: Rectangle {
-                            radius: 18
-                            color: Qt.rgba(0.07, 0.11, 0.18, 0.88)
-                            border.width: 1
-                            border.color: commandInput.activeFocus ? Qt.rgba(0.46, 0.78, 1.0, 0.7) : Qt.rgba(0.36, 0.5, 0.66, 0.18)
-                        }
-                    }
-
-                    GhostButton {
-                        id: sendButton
-
-                        width: 62
-                        text: "Send"
-                        prominent: true
-                        onClicked: {
-                            uiBridge.submitTextCommand(commandInput.text)
-                            commandInput.clear()
-                        }
-                    }
-                }
-
-                Text {
-                    width: parent.width
-                    visible: shellMode !== "full"
-                    text: "Voice first. Type only when needed."
-                    color: "#54677f"
-                    font.family: "Segoe UI Variable"
-                    font.pixelSize: 9
+                    border.color: Qt.rgba(0.72, 0.85, 1.0, 0.08)
                 }
 
                 Rectangle {
-                    width: parent.width
-                    height: shellMode === "full" ? 64 : 0
-                    radius: 16
-                    color: Qt.rgba(0.05, 0.09, 0.15, 0.58)
-                    border.width: shellMode === "full" ? 1 : 0
-                    border.color: Qt.rgba(0.61, 0.75, 0.92, 0.05)
-                    opacity: shellMode === "full" ? 0.88 : 0
-                    clip: true
-                    visible: shellMode === "full"
+                    anchors.top: parent.top
+                    anchors.topMargin: 24
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: root.panelTargetWidth + 10
+                    height: panelCard.height + 10
+                    radius: panelCard.radius + 5
+                    color: root.accentColor
+                    opacity: 0.038
+                }
 
-                    Behavior on opacity {
-                        NumberAnimation {
-                            duration: 120
+                Rectangle {
+                    id: panelCard
+
+                    anchors.top: parent.top
+                    anchors.topMargin: 18
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: root.panelTargetWidth
+                    implicitHeight: panelContent.implicitHeight + 34
+                    height: implicitHeight
+                    radius: root.fullPanel ? 30 : 26
+                    color: "#07101a"
+                    border.width: 1
+                    border.color: Qt.rgba(0.64, 0.8, 1.0, 0.08)
+
+                    gradient: Gradient {
+                        GradientStop {
+                            position: 0.0
+                            color: Qt.rgba(0.045, 0.08, 0.13, 0.94)
+                        }
+
+                        GradientStop {
+                            position: 1.0
+                            color: Qt.rgba(0.025, 0.045, 0.08, 0.96)
                         }
                     }
 
-                    Column {
+                    Rectangle {
                         anchors.fill: parent
-                        anchors.margins: 10
-                        spacing: 6
+                        radius: parent.radius
+                        color: root.panelTint
+                        opacity: root.visualState === "idle" ? 0.08 : 0.12
+                    }
 
-                        Text {
-                            text: "Journal"
-                            color: "#70849a"
-                            font.family: "Bahnschrift"
-                            font.pixelSize: 10
+                    Rectangle {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.top: parent.top
+                        anchors.topMargin: 10
+                        width: root.fullPanel ? 92 : 74
+                        height: 4
+                        radius: 2
+                        color: Qt.rgba(0.9, 0.96, 1.0, 0.12)
+                    }
+
+                    ColumnLayout {
+                        id: panelContent
+
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: 18
+                        anchors.topMargin: 24
+                        spacing: 12
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            StatusPill {
+                                Layout.preferredWidth: implicitWidth
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                            }
+
+                            RowLayout {
+                                spacing: 8
+
+                                ControlButton {
+                                    text: appState.muted ? "Unmute" : "Mute"
+                                    tone: "neutral"
+                                onClicked: uiBridge.toggleMute()
+                                }
+
+                                ControlButton {
+                                    text: "Stop"
+                                    tone: "danger"
+                                    onClicked: uiBridge.emergencyStop()
+                                }
+
+                                ControlButton {
+                                    text: root.fullPanel ? "Compact" : "Expand"
+                                    tone: "accent"
+                                    onClicked: root.toggleFullPanel()
+                                }
+                            }
                         }
 
-                        ListView {
-                            id: historyList
+                        Text {
+                            Layout.fillWidth: true
+                            text: root.statusMessage(root.visualState)
+                            wrapMode: Text.WordWrap
+                            maximumLineCount: 2
+                            elide: Text.ElideRight
+                            color: "#95a9c0"
+                            font.family: "Segoe UI Variable"
+                            font.pixelSize: 11
+                        }
 
-                            width: parent.width
-                            height: 36
-                            clip: true
-                            spacing: 4
-                            interactive: false
-                            model: historyModel
+                        Rectangle {
+                            Layout.fillWidth: true
+                            implicitHeight: 52
+                            radius: 18
+                            color: Qt.rgba(0.08, 0.12, 0.19, 0.76)
+                            border.width: 1
+                            border.color: Qt.rgba(0.62, 0.77, 0.96, 0.05)
 
-                            delegate: Column {
-                                width: historyList.width
-                                spacing: 1
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                spacing: 8
+
+                                TextField {
+                                    id: commandInput
+
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 36
+                                    placeholderText: "Type a command"
+                                    color: "#f4f8ff"
+                                    placeholderTextColor: "#63788f"
+                                    selectByMouse: true
+                                    font.family: "Segoe UI Variable"
+                                    font.pixelSize: 13
+
+                                    onAccepted: {
+                                        uiBridge.submitTextCommand(commandInput.text)
+                                        commandInput.clear()
+                                    }
+
+                                    onActiveFocusChanged: uiBridge.commandInputFocusChanged(activeFocus)
+
+                                    background: Rectangle {
+                                        radius: 16
+                                        color: Qt.rgba(0.07, 0.11, 0.18, 0.88)
+                                        border.width: 1
+                                        border.color: commandInput.activeFocus ? Qt.rgba(0.47, 0.79, 1.0, 0.72) : Qt.rgba(0.38, 0.51, 0.67, 0.18)
+                                    }
+                                }
+
+                                ControlButton {
+                                    text: "Send"
+                                    tone: "accent"
+                                    onClicked: {
+                                        uiBridge.submitTextCommand(commandInput.text)
+                                        commandInput.clear()
+                                    }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            implicitHeight: 58
+                            radius: 18
+                            color: Qt.rgba(0.08, 0.12, 0.19, 0.54)
+                            border.width: 1
+                            border.color: Qt.rgba(0.62, 0.77, 0.96, 0.04)
+
+                            Column {
+                                anchors.fill: parent
+                                anchors.margins: 12
+                                spacing: 3
 
                                 Text {
-                                    text: timestamp + "  " + resultStatus
-                                    color: resultStatus === "canceled" ? "#d99090" : "#6cbfe0"
+                                    width: parent.width
+                                    text: appState.lastResponse.length > 0 ? appState.lastResponse : "Ava ready."
+                                    color: "#edf5ff"
+                                    elide: Text.ElideRight
                                     font.family: "Segoe UI Variable"
-                                    font.pixelSize: 8
+                                    font.pixelSize: 12
                                 }
 
                                 Text {
                                     width: parent.width
-                                    text: commandText
-                                    color: "#bdd0e0"
+                                    text: appState.lastCommand.length > 0 ? appState.lastCommand : "Voice-first fallback available."
+                                    color: "#6d8298"
                                     elide: Text.ElideRight
                                     font.family: "Segoe UI Variable"
                                     font.pixelSize: 10
                                 }
                             }
+                        }
 
-                            Text {
-                                anchors.centerIn: parent
-                                visible: historyList.count === 0
-                                text: "No activity yet."
-                                color: "#556a80"
-                                font.family: "Segoe UI Variable"
-                                font.pixelSize: 9
+                        Text {
+                            Layout.fillWidth: true
+                            visible: !root.fullPanel
+                            text: "Voice first. Text is here when voice is unavailable."
+                            color: "#55697f"
+                            font.family: "Segoe UI Variable"
+                            font.pixelSize: 9
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: visible ? implicitHeight : 0
+                            implicitHeight: 84
+                            visible: root.fullPanel
+                            radius: 20
+                            color: Qt.rgba(0.05, 0.09, 0.15, 0.54)
+                            border.width: 1
+                            border.color: Qt.rgba(0.62, 0.77, 0.96, 0.04)
+
+                            Column {
+                                anchors.fill: parent
+                                anchors.margins: 12
+                                spacing: 8
+
+                                Row {
+                                    width: parent.width
+                                    spacing: 8
+
+                                    Text {
+                                        text: "Recent activity"
+                                        color: "#72869b"
+                                        font.family: "Bahnschrift"
+                                        font.pixelSize: 10
+                                    }
+
+                                    Rectangle {
+                                        width: 5
+                                        height: 5
+                                        radius: 2.5
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        color: Qt.rgba(root.accentColor.r, root.accentColor.g, root.accentColor.b, 0.5)
+                                    }
+                                }
+
+                                ListView {
+                                    id: historyList
+
+                                    width: parent.width
+                                    height: 46
+                                    clip: true
+                                    spacing: 4
+                                    interactive: false
+                                    model: historyModel
+
+                                    delegate: Column {
+                                        width: historyList.width
+                                        spacing: 1
+
+                                        Text {
+                                            text: timestamp + "  " + resultStatus
+                                            color: resultStatus === "canceled" ? "#cc8d8d" : "#6bb9d8"
+                                            font.family: "Segoe UI Variable"
+                                            font.pixelSize: 8
+                                        }
+
+                                        Text {
+                                            width: parent.width
+                                            text: commandText
+                                            color: "#bdd0df"
+                                            elide: Text.ElideRight
+                                            font.family: "Segoe UI Variable"
+                                            font.pixelSize: 10
+                                        }
+                                    }
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        visible: historyList.count === 0
+                                        text: "No activity yet."
+                                        color: "#53687e"
+                                        font.family: "Segoe UI Variable"
+                                        font.pixelSize: 9
+                                    }
+                                }
                             }
                         }
                     }
-                }
-            }
-        }
-
-        Item {
-            id: orb
-
-            anchors.horizontalCenter: parent.horizontalCenter
-            y: 8
-            width: 124
-            height: 124
-
-            MouseArea {
-                anchors.fill: parent
-                acceptedButtons: Qt.LeftButton
-                onPressed: mouse => {
-                    if (mouse.button === Qt.LeftButton) {
-                        root.startSystemMove()
-                    }
-                }
-                onClicked: root.toggleQuickPanel()
-                onDoubleClicked: root.toggleFullPanel()
-            }
-
-            Rectangle {
-                anchors.centerIn: parent
-                width: 110
-                height: 110
-                radius: 55
-                color: root.accentColor
-                opacity: appState.muted ? 0.045 : 0.085
-                scale: 0.95 + Math.abs(Math.sin(root.ambientPhase)) * 0.05
-            }
-
-            Rectangle {
-                anchors.centerIn: parent
-                width: 126
-                height: 126
-                radius: 63
-                color: root.accentColor
-                opacity: root.visualState === "speaking" ? 0.065 : 0.028
-                scale: 0.9 + Math.abs(Math.sin(root.ambientPhase + 1.3)) * 0.08
-            }
-
-            Item {
-                anchors.centerIn: parent
-                width: 116
-                height: 116
-                rotation: root.ambientPhase * 14
-                opacity: appState.muted ? 0.1 : 0.24
-
-                Repeater {
-                    model: 3
-
-                    Rectangle {
-                        width: index === 0 ? 5 : 4
-                        height: width
-                        radius: width / 2
-                        color: index === 0 ? "#eef7ff" : root.accentColor
-                        x: parent.width / 2 - width / 2 + Math.cos(index / 3 * Math.PI * 2 + 0.5) * 50
-                        y: parent.height / 2 - height / 2 + Math.sin(index / 3 * Math.PI * 2 + 0.5) * 50
-                    }
-                }
-            }
-
-            Item {
-                anchors.centerIn: parent
-                width: 122
-                height: 122
-                visible: root.visualState === "thinking"
-                rotation: root.ambientPhase * 57.2958
-
-                Repeater {
-                    model: 8
-
-                    Rectangle {
-                        width: index % 2 === 0 ? 7 : 5
-                        height: width
-                        radius: width / 2
-                        color: index % 2 === 0 ? "#7dd3fc" : "#7ba6ff"
-                        opacity: index % 2 === 0 ? 0.95 : 0.55
-                        x: parent.width / 2 - width / 2 + Math.cos(index / 8 * Math.PI * 2) * 52
-                        y: parent.height / 2 - height / 2 + Math.sin(index / 8 * Math.PI * 2) * 52
-                    }
-                }
-            }
-
-            Item {
-                anchors.centerIn: parent
-                width: 124
-                height: 124
-                visible: root.visualState === "listening" || root.visualState === "speaking"
-
-                Repeater {
-                    model: 18
-
-                    Rectangle {
-                        property real intensity: (Math.sin(root.audioPhase + index * 0.34) + 1) / 2
-
-                        width: 2
-                        height: root.visualState === "speaking" ? 7 + intensity * 15 : 5 + intensity * 11
-                        radius: 1
-                        color: root.accentColor
-                        opacity: root.visualState === "speaking" ? 0.88 : 0.62
-                        x: parent.width / 2 - width / 2 + Math.cos(index / 18 * Math.PI * 2) * 53
-                        y: parent.height / 2 - height / 2 + Math.sin(index / 18 * Math.PI * 2) * 53
-
-                        transform: Rotation {
-                            angle: index / 18 * 360 + 90
-                            origin.x: width / 2
-                            origin.y: height / 2
-                        }
-                    }
-                }
-            }
-
-            Item {
-                anchors.centerIn: parent
-                width: 94
-                height: 94
-                rotation: root.ambientPhase * 9.5
-                opacity: appState.muted ? 0.04 : 0.22
-
-                Rectangle {
-                    width: 28
-                    height: 5
-                    radius: 2.5
-                    color: Qt.rgba(0.92, 0.97, 1.0, 0.18)
-                    x: parent.width / 2 + 18
-                    y: parent.height / 2 - 2
-                    rotation: 24
-                }
-            }
-
-            Rectangle {
-                anchors.centerIn: parent
-                width: 94
-                height: 94
-                radius: 47
-                color: "transparent"
-                border.width: 1
-                border.color: Qt.rgba(0.86, 0.93, 1.0, 0.18)
-            }
-
-            Rectangle {
-                anchors.centerIn: parent
-                width: 78
-                height: 78
-                radius: 39
-                color: "#0b1421"
-                border.width: 1
-                border.color: Qt.rgba(0.9, 0.96, 1.0, 0.18)
-
-                gradient: Gradient {
-                    GradientStop {
-                        position: 0.0
-                        color: Qt.rgba(0.08, 0.13, 0.2, 0.97)
-                    }
-                    GradientStop {
-                        position: 1.0
-                        color: Qt.rgba(0.025, 0.05, 0.1, 0.985)
-                    }
-                }
-            }
-
-            Rectangle {
-                width: 30
-                height: 6
-                radius: 4
-                color: Qt.rgba(0.93, 0.98, 1.0, 0.1)
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.top: parent.top
-                anchors.topMargin: 28
-                rotation: -18
-            }
-
-            Column {
-                anchors.centerIn: parent
-                spacing: 1
-
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: "AVA"
-                    color: "#f8fbff"
-                    font.family: "Bahnschrift"
-                    font.pixelSize: shellMode === "orb" ? 19 : 21
-                    font.weight: Font.DemiBold
-                }
-
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: root.statusLabel(root.visualState)
-                    color: "#9fb4ca"
-                    font.family: "Segoe UI Variable"
-                    font.pixelSize: 10
-                    visible: shellMode !== "orb"
-                }
-            }
-
-            Rectangle {
-                anchors.right: parent.right
-                anchors.rightMargin: 18
-                anchors.bottom: parent.bottom
-                anchors.bottomMargin: 16
-                width: 10
-                height: 10
-                radius: 5
-                color: root.accentColor
-                opacity: appState.muted ? 0.55 : 0.95
-
-                Rectangle {
-                    anchors.centerIn: parent
-                    width: 18
-                    height: 18
-                    radius: 9
-                    color: "transparent"
-                    border.width: 1
-                    border.color: Qt.rgba(root.accentColor.r, root.accentColor.g, root.accentColor.b, 0.18)
                 }
             }
         }
