@@ -9,6 +9,14 @@ class IntentType(StrEnum):
     MUTE = "mute"
     UNMUTE = "unmute"
     OPEN_BROWSER = "open_browser"
+    OPEN_APP = "open_app"
+    CLOSE_APP = "close_app"
+    OPEN_WEBSITE = "open_website"
+    CLOSE_TAB = "close_tab"
+    CREATE_FOLDER = "create_folder"
+    CREATE_FILE = "create_file"
+    CONFIRM = "confirm"
+    DENY = "deny"
     GENERAL_COMMAND = "general_command"
 
 

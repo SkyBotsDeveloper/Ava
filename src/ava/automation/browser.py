@@ -6,6 +6,12 @@ from typing import ClassVar
 import psutil
 
 from ava.automation.models import AutomationStrategy, BrowserPlan
+from ava.automation.windows import (
+    WindowController,
+    browser_executable,
+    browser_process_names,
+    start_url_in_browser,
+)
 from ava.config.settings import Settings
 
 
@@ -15,8 +21,13 @@ class BrowserController:
         "chrome.exe": "chrome",
     }
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        window_controller: WindowController | None = None,
+    ) -> None:
         self.settings = settings
+        self.window_controller = window_controller or WindowController()
 
     def detect_live_session(self, running_processes: Iterable[str] | None = None) -> str | None:
         process_names = {
@@ -63,3 +74,28 @@ class BrowserController:
             strategy=AutomationStrategy.UI_AUTOMATION,
             reason="No suitable live session found; launch the preferred browser profile.",
         )
+
+    def open_url(self, url: str) -> BrowserPlan:
+        plan = self.resolve_browser_plan()
+        process_names = browser_process_names(plan.browser_name)
+        if plan.uses_live_session:
+            opened = self.window_controller.open_url_in_active_browser(process_names, url)
+            if opened:
+                return plan
+        start_url_in_browser(plan.browser_name, url)
+        return BrowserPlan(
+            uses_live_session=False,
+            browser_name=plan.browser_name,
+            strategy=AutomationStrategy.INPUT_SIMULATION,
+            reason="Opened URL by launching the preferred browser executable.",
+        )
+
+    def close_current_tab(self) -> BrowserPlan:
+        plan = self.resolve_browser_plan()
+        process_names = browser_process_names(plan.browser_name)
+        if not self.window_controller.close_active_tab(process_names):
+            raise RuntimeError("No live browser window available for tab control.")
+        return plan
+
+    def executable_for(self, browser_name: str) -> str:
+        return str(browser_executable(browser_name))

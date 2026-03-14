@@ -7,6 +7,8 @@ from pathlib import Path
 from ava.app.controller import AvaController
 from ava.app.state import AssistantState
 from ava.automation.browser import BrowserController
+from ava.automation.executor import ActionExecutor
+from ava.automation.windows import WindowController
 from ava.config.paths import AppPaths, build_app_paths
 from ava.config.settings import Settings, load_settings
 from ava.intents.router import IntentRouter
@@ -40,13 +42,18 @@ def bootstrap_application(env_file: str | Path | None = ".env") -> BootstrapCont
 
     state = AssistantState(observation_enabled=settings.observation_enabled)
     journal = ActionJournalStore(session_factory)
+    window_controller = WindowController()
+    browser_controller = BrowserController(settings, window_controller=window_controller)
     controller = AvaController(
         settings=settings,
         state=state,
         intent_router=IntentRouter(),
         safety_policy=SafetyPolicy(),
         journal=journal,
-        browser_controller=BrowserController(settings),
+        executor=ActionExecutor(
+            browser_controller=browser_controller,
+            window_controller=window_controller,
+        ),
     )
     return BootstrapContext(
         settings=settings,
