@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from ava.automation.browser import BrowserController
 from ava.automation.windows import WindowController
@@ -12,7 +13,7 @@ class ExecutionResult:
     action_name: str
     success: bool
     detail: str
-    data: dict[str, str | bool] | None = None
+    data: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)
@@ -31,16 +32,64 @@ class ActionExecutor:
         self.window_controller = window_controller
 
     def preview(self, intent: ParsedIntent) -> ExecutionPreview:
-        if intent.intent_type in {
+        browser_intents = {
             IntentType.OPEN_BROWSER,
             IntentType.OPEN_WEBSITE,
-            IntentType.OPEN_FOLDER,
+            IntentType.FOCUS_ADDRESS_BAR,
+            IntentType.OPEN_NEW_TAB,
+            IntentType.SWITCH_TAB,
+            IntentType.SEARCH_PAGE,
+            IntentType.GET_CURRENT_PAGE,
+            IntentType.OPEN_YOUTUBE,
+            IntentType.PLAY_YOUTUBE_PLAYLIST,
+            IntentType.OPEN_INSTAGRAM_LOGIN,
+            IntentType.OPEN_WHATSAPP_WEB,
             IntentType.CLOSE_TAB,
+        }
+        if intent.intent_type in {
+            IntentType.OPEN_FOLDER,
         }:
-            plan = self.browser_controller.resolve_browser_plan()
             if intent.intent_type is IntentType.OPEN_FOLDER:
                 target_name = intent.metadata.get("target_name", "folder")
                 return ExecutionPreview("open_folder", f"`{target_name}` Explorer me khulega.")
+        if intent.intent_type in browser_intents:
+            plan = self.browser_controller.resolve_browser_plan()
+            if intent.intent_type is IntentType.SEARCH_PAGE:
+                query = intent.metadata.get("query", "query")
+                return ExecutionPreview(
+                    "search_page",
+                    f"Current page par `{query}` search karenge.",
+                )
+            if intent.intent_type is IntentType.GET_CURRENT_PAGE:
+                return ExecutionPreview(
+                    "get_current_page",
+                    "Current page ka title aur URL dekhenge.",
+                )
+            if intent.intent_type is IntentType.OPEN_NEW_TAB:
+                return ExecutionPreview("open_new_tab", "Browser me naya tab khulega.")
+            if intent.intent_type is IntentType.SWITCH_TAB:
+                return ExecutionPreview("switch_tab", "Browser me next tab par switch karenge.")
+            if intent.intent_type is IntentType.FOCUS_ADDRESS_BAR:
+                return ExecutionPreview(
+                    "focus_address_bar",
+                    "Browser ka address bar focus karenge.",
+                )
+            if intent.intent_type is IntentType.PLAY_YOUTUBE_PLAYLIST:
+                query = intent.metadata.get("query", "playlist")
+                return ExecutionPreview(
+                    "play_youtube_playlist",
+                    f"YouTube par `{query}` playlist search karke play karenge.",
+                )
+            if intent.intent_type is IntentType.OPEN_INSTAGRAM_LOGIN:
+                return ExecutionPreview(
+                    "open_instagram_login",
+                    "Instagram login page isolated browser me khulega.",
+                )
+            if intent.intent_type is IntentType.OPEN_WHATSAPP_WEB:
+                return ExecutionPreview(
+                    "open_whatsapp_web",
+                    "WhatsApp Web isolated browser me khulega.",
+                )
             return ExecutionPreview("browser_plan", plan.describe())
         if intent.intent_type in {IntentType.OPEN_APP, IntentType.CLOSE_APP}:
             app_name = intent.metadata.get("app_name", "unknown app")
@@ -67,25 +116,107 @@ class ActionExecutor:
             )
         return ExecutionPreview("unimplemented", "Execution path scaffolded for a later phase.")
 
-    def execute(self, intent: ParsedIntent) -> ExecutionResult:
+    def execute(self, intent: ParsedIntent, *, confirmed: bool = False) -> ExecutionResult:
         if intent.intent_type is IntentType.OPEN_BROWSER:
-            plan = self.browser_controller.resolve_browser_plan()
-            self.browser_controller.open_url("https://www.google.com")
+            page = self.browser_controller.open_url("https://www.google.com", confirmed=confirmed)
             return ExecutionResult(
                 action_name="open_browser",
                 success=True,
-                detail=plan.describe(),
-                data=plan.as_dict(),
+                detail="Browser khol diya.",
+                data=page.as_dict(),
             )
 
         if intent.intent_type is IntentType.OPEN_WEBSITE:
             url = intent.metadata["url"]
-            plan = self.browser_controller.open_url(url)
+            page = self.browser_controller.open_url(url, confirmed=confirmed)
             return ExecutionResult(
                 action_name="open_website",
                 success=True,
                 detail=f"{url} khol diya.",
-                data={"url": url, **plan.as_dict()},
+                data=page.as_dict(),
+            )
+
+        if intent.intent_type is IntentType.FOCUS_ADDRESS_BAR:
+            page = self.browser_controller.focus_address_bar()
+            return ExecutionResult(
+                action_name="focus_address_bar",
+                success=True,
+                detail="Address bar focus kar diya.",
+                data=page.as_dict(),
+            )
+
+        if intent.intent_type is IntentType.OPEN_NEW_TAB:
+            page = self.browser_controller.open_new_tab(intent.metadata.get("url", "about:blank"))
+            return ExecutionResult(
+                action_name="open_new_tab",
+                success=True,
+                detail="Naya tab khol diya.",
+                data=page.as_dict(),
+            )
+
+        if intent.intent_type is IntentType.SWITCH_TAB:
+            page = self.browser_controller.switch_tab(
+                direction=intent.metadata.get("direction", "next")
+            )
+            return ExecutionResult(
+                action_name="switch_tab",
+                success=True,
+                detail="Tab switch kar diya.",
+                data=page.as_dict(),
+            )
+
+        if intent.intent_type is IntentType.SEARCH_PAGE:
+            result = self.browser_controller.search_on_page(intent.metadata["query"])
+            return ExecutionResult(
+                action_name="search_page",
+                success=True,
+                detail=f"Current page par `{intent.metadata['query']}` search kar diya.",
+                data=result.as_dict(),
+            )
+
+        if intent.intent_type is IntentType.GET_CURRENT_PAGE:
+            page = self.browser_controller.current_page_state()
+            return ExecutionResult(
+                action_name="get_current_page",
+                success=True,
+                detail=f"Current page: {page.title or 'Untitled'} | {page.url}",
+                data=page.as_dict(),
+            )
+
+        if intent.intent_type is IntentType.OPEN_YOUTUBE:
+            page = self.browser_controller.open_youtube()
+            return ExecutionResult(
+                action_name="open_youtube",
+                success=True,
+                detail="YouTube khol diya.",
+                data=page.as_dict(),
+            )
+
+        if intent.intent_type is IntentType.PLAY_YOUTUBE_PLAYLIST:
+            playback = self.browser_controller.play_youtube_playlist(intent.metadata["query"])
+            return ExecutionResult(
+                action_name="play_youtube_playlist",
+                success=True,
+                detail=f"YouTube par `{intent.metadata['query']}` playlist chala di.",
+                data=playback.as_dict(),
+            )
+
+        if intent.intent_type is IntentType.OPEN_INSTAGRAM_LOGIN:
+            page = self.browser_controller.open_instagram_login(confirmed=confirmed)
+            return ExecutionResult(
+                action_name="open_instagram_login",
+                success=True,
+                detail="Instagram login page khol diya.",
+                data=page.as_dict(),
+            )
+
+        if intent.intent_type is IntentType.OPEN_WHATSAPP_WEB:
+            page = self.browser_controller.open_whatsapp_web(confirmed=confirmed)
+            return ExecutionResult(
+                action_name="open_whatsapp_web",
+                success=True,
+                detail="WhatsApp Web khol diya.",
+                data=page.as_dict(),
             )
 
         if intent.intent_type is IntentType.OPEN_FOLDER:
@@ -98,12 +229,12 @@ class ActionExecutor:
             )
 
         if intent.intent_type is IntentType.CLOSE_TAB:
-            plan = self.browser_controller.close_current_tab()
+            page = self.browser_controller.close_current_tab(confirmed=confirmed)
             return ExecutionResult(
                 action_name="close_tab",
                 success=True,
                 detail="Current browser tab band kar diya.",
-                data=plan.as_dict(),
+                data=page.as_dict(),
             )
 
         if intent.intent_type is IntentType.OPEN_APP:

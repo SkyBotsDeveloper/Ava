@@ -117,7 +117,12 @@ class AvaController:
             )
             return CommandResult(self.state.last_response)
 
-        if intent.intent_type in {IntentType.MOVE_PATH, IntentType.RENAME_PATH}:
+        confirmation_required_intents = {
+            IntentType.MOVE_PATH,
+            IntentType.RENAME_PATH,
+            IntentType.CLOSE_TAB,
+        }
+        if intent.intent_type in confirmation_required_intents:
             self._pending_action = PendingAction(command_text=cleaned, intent=intent)
             preview = self.executor.preview(intent)
             self.state.last_response = f"Confirm karo, phir {preview.detail.lower()}"
@@ -195,7 +200,10 @@ class AvaController:
     ) -> CommandResult:
         self.state.status = AssistantStatus.THINKING
         try:
-            result = self.executor.execute(intent)
+            result = self.executor.execute(
+                intent,
+                confirmed=confirmation_status is ConfirmationStatus.CONFIRMED,
+            )
         except Exception as exc:
             self.state.status = AssistantStatus.IDLE
             self.state.last_response = f"Execution fail ho gaya: {exc}"

@@ -4,7 +4,7 @@ Ava is a Windows-only, voice-first AI desktop agent with a premium orb UI, local
 
 ## Current status
 
-Phase 3 is now started on top of the frozen shell:
+Phase 4 browser command work is now underway on top of the frozen shell:
 
 - Python project scaffold with tooling, linting, tests, and pre-commit hooks
 - Config loading via `.env`
@@ -16,12 +16,13 @@ Phase 3 is now started on top of the frozen shell:
 - Intent routing, browser strategy defaults, and safety policy scaffolding
 - Gemini Live client adapter and Hinglish system prompt
 - Async voice runtime for Gemini text turns, manual voice trigger, audio playback, wake-word monitoring, and state transitions
+- Isolated sacrificial browser controller plus real Ava command-pipeline wiring for safe browser MVP flows
 
 ## Product defaults locked in this repo
 
 - Voice-first, but text command, push-to-talk, mute, and emergency stop are mandatory controls
 - Wake-word detection will use a proven local detector (`openWakeWord`) as the primary path in the next phase
-- Browser control is live-session first for Chrome/Edge, with Microsoft Edge as the default fallback browser profile
+- Browser command execution currently defaults to an isolated sacrificial Edge/Chrome session so the user's real browser stays untouched during Phase 4 verification
 - Automation priority is UI Automation first, input simulation second, DOM automation third, visual fallback last
 - Development secrets stay in `.env`; packaged builds should migrate sensitive secrets to Windows Credential Manager or an equivalent secure store
 
@@ -74,6 +75,7 @@ tests/               Unit tests and integration scaffolding
 - If a suitable live Chrome or Edge session is already open, Ava should control that first.
 - If no suitable live session exists, Ava should open the preferred browser profile in Microsoft Edge by default unless the setting is changed later.
 - Playwright is a fallback for flows that need DOM certainty, not the default browsing experience.
+- During the current Phase 4 browser MVP, `AVA_BROWSER_COMMAND_MODE=isolated` keeps Ava on a disposable sacrificial browser profile for safer verification.
 
 ## Safety baseline
 

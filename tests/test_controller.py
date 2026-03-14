@@ -6,6 +6,7 @@ from ava.app.controller import AvaController
 from ava.app.state import AssistantState
 from ava.automation.browser import BrowserController
 from ava.automation.executor import ActionExecutor
+from ava.automation.sacrificial_browser import BrowserPageState, PageSearchResult, PlaybackResult
 from ava.automation.windows import WindowController
 from ava.config.settings import Settings
 from ava.intents.router import IntentRouter
@@ -65,14 +66,132 @@ class FakeWindowController(WindowController):
         return True
 
 
-def _build_controller(tmp_path: Path) -> AvaController:
-    settings = Settings(_env_file=None)
+class FakeSacrificialBrowserController:
+    def __init__(self) -> None:
+        self.current_page = BrowserPageState(
+            title="about:blank",
+            url="about:blank",
+            tab_count=1,
+            active_tab_index=0,
+            browser_name="edge",
+            isolated=True,
+        )
+
+    def open_website(self, url: str, *, confirmed: bool = False) -> BrowserPageState:
+        self.current_page = BrowserPageState(
+            title=url,
+            url=url,
+            tab_count=self.current_page.tab_count,
+            active_tab_index=self.current_page.active_tab_index,
+            browser_name="edge",
+            isolated=True,
+        )
+        return self.current_page
+
+    def open_new_tab(self, url: str = "about:blank") -> BrowserPageState:
+        self.current_page = BrowserPageState(
+            title=url,
+            url=url,
+            tab_count=self.current_page.tab_count + 1,
+            active_tab_index=self.current_page.tab_count,
+            browser_name="edge",
+            isolated=True,
+        )
+        return self.current_page
+
+    def close_current_tab(self, *, confirmed: bool = False) -> BrowserPageState:
+        if not confirmed:
+            raise PermissionError("confirm chahiye")
+        remaining_tabs = max(1, self.current_page.tab_count - 1)
+        active_index = max(0, remaining_tabs - 1)
+        self.current_page = BrowserPageState(
+            title="remaining",
+            url="https://remaining.example",
+            tab_count=remaining_tabs,
+            active_tab_index=active_index,
+            browser_name="edge",
+            isolated=True,
+        )
+        return self.current_page
+
+    def focus_address_bar(self) -> BrowserPageState:
+        return self.current_page
+
+    def switch_tab(self, *, direction: str = "next") -> BrowserPageState:
+        return self.current_page
+
+    def search_on_page(self, query: str) -> PageSearchResult:
+        return PageSearchResult(query=query, match_count=3, page=self.current_page)
+
+    def current_page_state(self) -> BrowserPageState:
+        return self.current_page
+
+    def open_youtube(self) -> BrowserPageState:
+        self.current_page = BrowserPageState(
+            title="YouTube",
+            url="https://www.youtube.com",
+            tab_count=1,
+            active_tab_index=0,
+            browser_name="edge",
+            isolated=True,
+        )
+        return self.current_page
+
+    def search_and_play_youtube_playlist(self, search_query: str) -> PlaybackResult:
+        self.current_page = BrowserPageState(
+            title="YouTube",
+            url="https://www.youtube.com/watch?v=test",
+            tab_count=1,
+            active_tab_index=0,
+            browser_name="edge",
+            isolated=True,
+        )
+        return PlaybackResult(search_query=search_query, playing=True, page=self.current_page)
+
+    def open_instagram_login(self, *, confirmed: bool = False) -> BrowserPageState:
+        if not confirmed:
+            raise PermissionError("confirm chahiye")
+        self.current_page = BrowserPageState(
+            title="Instagram",
+            url="https://www.instagram.com/accounts/login/",
+            tab_count=1,
+            active_tab_index=0,
+            browser_name="edge",
+            isolated=True,
+        )
+        return self.current_page
+
+    def open_whatsapp_web(self, *, confirmed: bool = False) -> BrowserPageState:
+        if not confirmed:
+            raise PermissionError("confirm chahiye")
+        self.current_page = BrowserPageState(
+            title="WhatsApp Web",
+            url="https://web.whatsapp.com/",
+            tab_count=1,
+            active_tab_index=0,
+            browser_name="edge",
+            isolated=True,
+        )
+        return self.current_page
+
+
+def _build_controller(
+    tmp_path: Path,
+    *,
+    browser_command_mode: str = "live",
+    sacrificial_controller: FakeSacrificialBrowserController | None = None,
+) -> AvaController:
+    settings = Settings(_env_file=None, browser_command_mode=browser_command_mode)
     state = AssistantState()
     engine = build_engine(tmp_path / "ava.db")
     initialize_database(engine)
     journal = ActionJournalStore(build_session_factory(engine))
     window_controller = FakeWindowController(tmp_path)
-    browser_controller = BrowserController(settings, window_controller=window_controller)
+    browser_controller = BrowserController(
+        settings,
+        window_controller=window_controller,
+        sacrificial_controller=sacrificial_controller,
+    )
     executor = ActionExecutor(
         browser_controller=browser_controller,
         window_controller=window_controller,
@@ -118,3 +237,35 @@ def test_controller_requires_confirmation_for_move(tmp_path: Path) -> None:
     assert "confirm" in first.response_text.lower()
     assert second.response_text == "Move kar diya: source-folder"
     assert (tmp_path / "dest-folder" / "source-folder").exists()
+
+
+def test_controller_routes_browser_commands_into_isolated_session(tmp_path: Path) -> None:
+    fake_sacrificial = FakeSacrificialBrowserController()
+    controller = _build_controller(
+        tmp_path,
+        browser_command_mode="isolated",
+        sacrificial_controller=fake_sacrificial,
+    )
+
+    open_result = controller.handle_text_command("YouTube kholo")
+    search_result = controller.handle_text_command('Is page par "YouTube" search karo')
+
+    assert open_result.response_text == "YouTube khol diya."
+    assert search_result.response_text == "Current page par `YouTube` search kar diya."
+
+
+def test_controller_requires_confirmation_for_close_tab_in_isolated_mode(tmp_path: Path) -> None:
+    fake_sacrificial = FakeSacrificialBrowserController()
+    controller = _build_controller(
+        tmp_path,
+        browser_command_mode="isolated",
+        sacrificial_controller=fake_sacrificial,
+    )
+    controller.handle_text_command("new tab kholo")
+
+    first = controller.handle_text_command("current tab band karo")
+    second = controller.handle_text_command("haan")
+
+    assert first.confirmation_required is True
+    assert "confirm" in first.response_text.lower()
+    assert second.response_text == "Current browser tab band kar diya."

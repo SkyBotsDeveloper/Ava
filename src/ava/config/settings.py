@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     data_root: Path | None = None
 
     preferred_browser: Literal["edge", "chrome"] = "edge"
+    browser_command_mode: Literal["isolated", "live"] = "isolated"
     browser_live_session_first: bool = True
     launch_edge_when_browser_missing: bool = True
 

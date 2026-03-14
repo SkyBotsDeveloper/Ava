@@ -20,6 +20,7 @@
 - Added a manual voice trigger path that works without wake-word models
 - Added initial Phase 3 tests for prompting, Gemini event normalization, and voice runtime state/journal flow
 - Added a sacrificial browser controller that launches an isolated Edge/Chrome window with a temporary profile and CDP automation for safe browser verification
+- Wired isolated browser actions into Ava's real intent/controller/executor command pipeline for website open, tab control, page search/info, YouTube playlist playback, and confirmation-gated Instagram/WhatsApp flows
 
 ### Verified
 
@@ -34,6 +35,7 @@
 - Real Gemini Live text fallback now connects with the `.env` key and returns a Hinglish response
 - Real manual voice trigger starts `listening` and transitions to `thinking` after manual stop, even with wake-word paths still empty
 - Real sacrificial browser verification succeeds for isolated website open/navigation, tab actions, page info detection, YouTube playlist playback, Instagram login page open, and WhatsApp Web open without touching the user's real browser session
+- Real Ava command-pipeline verification succeeds for isolated browser commands via `AvaController.handle_text_command(...)`, including confirmation-gated tab close, Instagram login, and WhatsApp Web
 
 ### Blocked
 

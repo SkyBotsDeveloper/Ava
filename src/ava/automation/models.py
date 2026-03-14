@@ -14,6 +14,7 @@ class AutomationStrategy(StrEnum):
 @dataclass(slots=True)
 class BrowserPlan:
     uses_live_session: bool
+    uses_isolated_session: bool
     browser_name: str
     strategy: AutomationStrategy
     reason: str
@@ -22,6 +23,8 @@ class BrowserPlan:
         return asdict(self)
 
     def describe(self) -> str:
+        if self.uses_isolated_session:
+            return f"Isolated {self.browser_name.title()} test session use karenge."
         if self.uses_live_session:
             return f"Live {self.browser_name.title()} session mil gaya. Usko control karenge."
         return (

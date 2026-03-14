@@ -6,6 +6,7 @@ def test_settings_default_browser_fallback() -> None:
     settings = Settings(_env_file=None)
 
     assert settings.preferred_browser == "edge"
+    assert settings.browser_command_mode == "isolated"
     assert settings.browser_live_session_first is True
     assert settings.launch_edge_when_browser_missing is True
 

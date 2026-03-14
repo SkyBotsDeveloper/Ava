@@ -73,6 +73,14 @@ class IntentRouter:
             return ParsedIntent(IntentType.MUTE, raw_text, normalized, source=source)
 
         for parser in (
+            self._parse_page_info,
+            self._parse_page_search,
+            self._parse_focus_address_bar,
+            self._parse_new_tab,
+            self._parse_switch_tab,
+            self._parse_youtube_playlist,
+            self._parse_instagram_login,
+            self._parse_whatsapp_web,
             self._parse_close_tab,
             self._parse_move_path,
             self._parse_rename_path,
@@ -87,9 +95,164 @@ class IntentRouter:
             if intent is not None:
                 return intent
 
+        if "website" in normalized and any(
+            token in normalized for token in ("khol", "open", "launch")
+        ):
+            return ParsedIntent(IntentType.OPEN_BROWSER, raw_text, normalized, source=source)
         if any(token in normalized for token in ("browser", "chrome", "edge")):
             return ParsedIntent(IntentType.OPEN_BROWSER, raw_text, normalized, source=source)
         return ParsedIntent(IntentType.GENERAL_COMMAND, raw_text, normalized, source=source)
+
+    def _parse_page_info(
+        self,
+        raw_text: str,
+        normalized: str,
+        source: str,
+    ) -> ParsedIntent | None:
+        if "page" not in normalized:
+            return None
+        if not any(token in normalized for token in ("title", "url", "batao", "kya hai", "show")):
+            return None
+        return ParsedIntent(IntentType.GET_CURRENT_PAGE, raw_text, normalized, source=source)
+
+    def _parse_page_search(
+        self,
+        raw_text: str,
+        normalized: str,
+        source: str,
+    ) -> ParsedIntent | None:
+        if "page" not in normalized:
+            return None
+        if not any(token in normalized for token in ("search", "dhundo", "find")):
+            return None
+        query = self._extract_search_query(raw_text)
+        if query is None:
+            return None
+        return ParsedIntent(
+            IntentType.SEARCH_PAGE,
+            raw_text,
+            normalized,
+            source=source,
+            metadata={"query": query},
+        )
+
+    def _parse_focus_address_bar(
+        self,
+        raw_text: str,
+        normalized: str,
+        source: str,
+    ) -> ParsedIntent | None:
+        if "address bar" not in normalized:
+            return None
+        if not any(token in normalized for token in ("jao", "focus", "par ja", "open")):
+            return None
+        return ParsedIntent(IntentType.FOCUS_ADDRESS_BAR, raw_text, normalized, source=source)
+
+    def _parse_new_tab(
+        self,
+        raw_text: str,
+        normalized: str,
+        source: str,
+    ) -> ParsedIntent | None:
+        if "tab" not in normalized:
+            return None
+        if not any(token in normalized for token in ("new", "naya", "nayi")):
+            return None
+        if not any(token in normalized for token in ("khol", "open", "launch", "bana")):
+            return None
+        url_match = re.search(
+            r"(https?://\S+|file:///\S+|www\.\S+\.\S+)",
+            raw_text,
+            flags=re.IGNORECASE,
+        )
+        metadata: dict[str, str] = {}
+        if url_match:
+            url = url_match.group(1)
+            if url.lower().startswith("www."):
+                url = f"https://{url}"
+            metadata["url"] = url
+        return ParsedIntent(
+            IntentType.OPEN_NEW_TAB,
+            raw_text,
+            normalized,
+            source=source,
+            metadata=metadata,
+        )
+
+    def _parse_switch_tab(
+        self,
+        raw_text: str,
+        normalized: str,
+        source: str,
+    ) -> ParsedIntent | None:
+        if "tab" not in normalized:
+            return None
+        if not any(
+            token in normalized for token in ("switch", "next", "previous", "agla", "peeche")
+        ):
+            return None
+        direction = (
+            "previous"
+            if any(token in normalized for token in ("previous", "back", "peeche"))
+            else "next"
+        )
+        return ParsedIntent(
+            IntentType.SWITCH_TAB,
+            raw_text,
+            normalized,
+            source=source,
+            metadata={"direction": direction},
+        )
+
+    def _parse_youtube_playlist(
+        self,
+        raw_text: str,
+        normalized: str,
+        source: str,
+    ) -> ParsedIntent | None:
+        if "youtube" not in normalized:
+            return None
+        if any(token in normalized for token in ("playlist", "play")):
+            query = self._extract_playlist_query(raw_text)
+            if query:
+                return ParsedIntent(
+                    IntentType.PLAY_YOUTUBE_PLAYLIST,
+                    raw_text,
+                    normalized,
+                    source=source,
+                    metadata={"query": query},
+                )
+        if any(token in normalized for token in ("khol", "open", "launch")):
+            return ParsedIntent(IntentType.OPEN_YOUTUBE, raw_text, normalized, source=source)
+        return None
+
+    def _parse_instagram_login(
+        self,
+        raw_text: str,
+        normalized: str,
+        source: str,
+    ) -> ParsedIntent | None:
+        if not any(token in normalized for token in ("instagram", "insta")):
+            return None
+        if "login" not in normalized:
+            return None
+        if not any(token in normalized for token in ("khol", "open", "launch")):
+            return None
+        return ParsedIntent(IntentType.OPEN_INSTAGRAM_LOGIN, raw_text, normalized, source=source)
+
+    def _parse_whatsapp_web(
+        self,
+        raw_text: str,
+        normalized: str,
+        source: str,
+    ) -> ParsedIntent | None:
+        if "whatsapp" not in normalized:
+            return None
+        if "web" not in normalized:
+            return None
+        if not any(token in normalized for token in ("khol", "open", "launch")):
+            return None
+        return ParsedIntent(IntentType.OPEN_WHATSAPP_WEB, raw_text, normalized, source=source)
 
     def _parse_close_tab(
         self,
@@ -276,7 +439,7 @@ class IntentRouter:
                 token in normalized for token in ("khol", "open", "launch")
             ):
                 return ParsedIntent(
-                    IntentType.OPEN_WEBSITE,
+                    IntentType.OPEN_YOUTUBE if alias == "youtube" else IntentType.OPEN_WEBSITE,
                     raw_text,
                     normalized,
                     source=source,
@@ -300,6 +463,25 @@ class IntentRouter:
                 metadata={"url": url, "label": url},
             )
         return None
+
+    @classmethod
+    def _extract_search_query(cls, raw_text: str) -> str | None:
+        quoted = cls._extract_quoted_names(raw_text)
+        if quoted:
+            return quoted[0]
+        match = re.search(r"(?i)(?:search|find|dhundo)\s+(.+?)(?:\s+on|\s+par|\s*$)", raw_text)
+        if match:
+            return match.group(1).strip(" .")
+        return None
+
+    @classmethod
+    def _extract_playlist_query(cls, raw_text: str) -> str | None:
+        quoted = cls._extract_quoted_names(raw_text)
+        if quoted:
+            return quoted[0]
+        cleaned = re.sub(r"(?i)\b(ava|youtube|playlist|play|chalao|par|please)\b", "", raw_text)
+        cleaned = " ".join(cleaned.split()).strip(" -:")
+        return cleaned or None
 
     @staticmethod
     def _extract_quoted_names(raw_text: str) -> list[str]:

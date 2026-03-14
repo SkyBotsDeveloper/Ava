@@ -37,6 +37,64 @@ def test_close_tab_intent_detected() -> None:
     assert intent.intent_type is IntentType.CLOSE_TAB
 
 
+def test_address_bar_focus_intent_detected() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("Address bar par jao")
+
+    assert intent.intent_type is IntentType.FOCUS_ADDRESS_BAR
+
+
+def test_new_tab_intent_detected() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("New tab kholo")
+
+    assert intent.intent_type is IntentType.OPEN_NEW_TAB
+
+
+def test_page_search_intent_detected() -> None:
+    router = IntentRouter()
+
+    intent = router.parse('Is page par "Wikipedia" search karo')
+
+    assert intent.intent_type is IntentType.SEARCH_PAGE
+    assert intent.metadata["query"] == "Wikipedia"
+
+
+def test_page_info_intent_detected() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("Current page ka title url batao")
+
+    assert intent.intent_type is IntentType.GET_CURRENT_PAGE
+
+
+def test_youtube_playlist_intent_detected() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("YouTube par lofi hip hop playlist chalao")
+
+    assert intent.intent_type is IntentType.PLAY_YOUTUBE_PLAYLIST
+    assert intent.metadata["query"] == "lofi hip hop"
+
+
+def test_instagram_login_intent_detected() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("Instagram login page kholo")
+
+    assert intent.intent_type is IntentType.OPEN_INSTAGRAM_LOGIN
+
+
+def test_whatsapp_web_intent_detected() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("WhatsApp Web kholo")
+
+    assert intent.intent_type is IntentType.OPEN_WHATSAPP_WEB
+
+
 def test_file_url_open_intent_detected() -> None:
     router = IntentRouter()
 
