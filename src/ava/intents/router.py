@@ -20,6 +20,14 @@ class IntentRouter:
         "gmail": "https://mail.google.com",
         "whatsapp": "https://web.whatsapp.com",
     }
+    KNOWN_FOLDER_ALIASES: Final[dict[str, str]] = {
+        "desktop": "desktop",
+        "downloads": "downloads",
+        "download": "downloads",
+        "documents": "documents",
+        "document": "documents",
+        "docs": "documents",
+    }
     APP_ALIASES: Final[dict[str, str]] = {
         "notepad": "notepad",
         "calculator": "calculator",
@@ -29,6 +37,19 @@ class IntentRouter:
         "file explorer": "explorer",
         "cmd": "command prompt",
         "command prompt": "command prompt",
+        "powershell": "powershell",
+        "task manager": "task manager",
+        "settings": "settings",
+        "snipping tool": "snipping tool",
+        "edge": "edge",
+        "chrome": "chrome",
+        "vscode": "visual studio code",
+        "vs code": "visual studio code",
+        "code": "visual studio code",
+        "telegram": "telegram",
+        "whatsapp": "whatsapp",
+        "spotify": "spotify",
+        "discord": "discord",
     }
 
     def parse(self, raw_text: str, source: str = "text") -> ParsedIntent:
@@ -51,29 +72,20 @@ class IntentRouter:
         if any(token in normalized for token in self.MUTE_TOKENS):
             return ParsedIntent(IntentType.MUTE, raw_text, normalized, source=source)
 
-        close_tab = self._parse_close_tab(raw_text, normalized, source)
-        if close_tab is not None:
-            return close_tab
-
-        create_folder = self._parse_create_folder(raw_text, normalized, source)
-        if create_folder is not None:
-            return create_folder
-
-        create_file = self._parse_create_file(raw_text, normalized, source)
-        if create_file is not None:
-            return create_file
-
-        close_app = self._parse_app_intent(raw_text, normalized, source, close=True)
-        if close_app is not None:
-            return close_app
-
-        open_website = self._parse_website_intent(raw_text, normalized, source)
-        if open_website is not None:
-            return open_website
-
-        open_app = self._parse_app_intent(raw_text, normalized, source, close=False)
-        if open_app is not None:
-            return open_app
+        for parser in (
+            self._parse_close_tab,
+            self._parse_move_path,
+            self._parse_rename_path,
+            self._parse_create_folder,
+            self._parse_create_file,
+            self._parse_open_folder,
+            self._parse_app_intent_close,
+            self._parse_website_intent,
+            self._parse_app_intent_open,
+        ):
+            intent = parser(raw_text, normalized, source)
+            if intent is not None:
+                return intent
 
         if any(token in normalized for token in ("browser", "chrome", "edge")):
             return ParsedIntent(IntentType.OPEN_BROWSER, raw_text, normalized, source=source)
@@ -90,6 +102,47 @@ class IntentRouter:
         if any(token in normalized for token in ("band", "close", "remove")):
             return ParsedIntent(IntentType.CLOSE_TAB, raw_text, normalized, source=source)
         return None
+
+    def _parse_move_path(
+        self,
+        raw_text: str,
+        normalized: str,
+        source: str,
+    ) -> ParsedIntent | None:
+        if not (
+            normalized.startswith("move ")
+            or any(token in normalized for token in (" move ", " shift", "le ja", "bhej"))
+        ):
+            return None
+        names = self._extract_quoted_names(raw_text)
+        if len(names) < 2:
+            return None
+        return ParsedIntent(
+            IntentType.MOVE_PATH,
+            raw_text,
+            normalized,
+            source=source,
+            metadata={"source_name": names[0], "destination_name": names[1]},
+        )
+
+    def _parse_rename_path(
+        self,
+        raw_text: str,
+        normalized: str,
+        source: str,
+    ) -> ParsedIntent | None:
+        if not any(token in normalized for token in ("rename", "naam badal", "naam change")):
+            return None
+        names = self._extract_quoted_names(raw_text)
+        if len(names) < 2:
+            return None
+        return ParsedIntent(
+            IntentType.RENAME_PATH,
+            raw_text,
+            normalized,
+            source=source,
+            metadata={"source_name": names[0], "new_name": names[1]},
+        )
 
     def _parse_create_folder(
         self,
@@ -132,6 +185,62 @@ class IntentRouter:
             source=source,
             metadata={"target_name": name},
         )
+
+    def _parse_open_folder(
+        self,
+        raw_text: str,
+        normalized: str,
+        source: str,
+    ) -> ParsedIntent | None:
+        if not any(token in normalized for token in ("khol", "open", "show", "go to")):
+            return None
+        folder_name = self._extract_named_target(raw_text, ("folder", "directory"))
+        if folder_name:
+            return ParsedIntent(
+                IntentType.OPEN_FOLDER,
+                raw_text,
+                normalized,
+                source=source,
+                metadata={"target_name": folder_name},
+            )
+
+        path_match = re.search(r"([a-zA-Z]:\\[^\"']+)", raw_text)
+        if path_match:
+            return ParsedIntent(
+                IntentType.OPEN_FOLDER,
+                raw_text,
+                normalized,
+                source=source,
+                metadata={"target_name": path_match.group(1)},
+            )
+
+        for alias, folder_key in self.KNOWN_FOLDER_ALIASES.items():
+            if alias in normalized:
+                return ParsedIntent(
+                    IntentType.OPEN_FOLDER,
+                    raw_text,
+                    normalized,
+                    source=source,
+                    metadata={"target_name": folder_key},
+                )
+
+        return None
+
+    def _parse_app_intent_open(
+        self,
+        raw_text: str,
+        normalized: str,
+        source: str,
+    ) -> ParsedIntent | None:
+        return self._parse_app_intent(raw_text, normalized, source, close=False)
+
+    def _parse_app_intent_close(
+        self,
+        raw_text: str,
+        normalized: str,
+        source: str,
+    ) -> ParsedIntent | None:
+        return self._parse_app_intent(raw_text, normalized, source, close=True)
 
     def _parse_app_intent(
         self,
@@ -193,6 +302,10 @@ class IntentRouter:
         return None
 
     @staticmethod
+    def _extract_quoted_names(raw_text: str) -> list[str]:
+        return [match.strip() for match in re.findall(r"['\"]([^'\"]+)['\"]", raw_text)]
+
+    @staticmethod
     def _extract_named_target(raw_text: str, keywords: tuple[str, ...]) -> str | None:
         text = raw_text.strip()
         quoted = re.search(r"['\"]([^'\"]+)['\"]", text)
@@ -207,8 +320,16 @@ class IntentRouter:
             before = text[:index].strip(" -:")
             after = text[index + len(keyword) :].strip(" -:")
 
-            before = re.sub(r"(?i)\b(create|new|please|ava|banao|bana do)\b", "", before).strip()
-            after = re.sub(r"(?i)\b(create|new|please|ava|banao|bana do|ke andar)\b", "", after)
+            before = re.sub(
+                r"(?i)\b(create|new|please|ava|banao|bana do|open|khol)\b",
+                "",
+                before,
+            ).strip()
+            after = re.sub(
+                r"(?i)\b(create|new|please|ava|banao|bana do|ke andar|open|khol)\b",
+                "",
+                after,
+            )
             after = after.strip(" -:")
 
             candidate = before or after

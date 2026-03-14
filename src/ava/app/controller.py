@@ -117,6 +117,20 @@ class AvaController:
             )
             return CommandResult(self.state.last_response)
 
+        if intent.intent_type in {IntentType.MOVE_PATH, IntentType.RENAME_PATH}:
+            self._pending_action = PendingAction(command_text=cleaned, intent=intent)
+            preview = self.executor.preview(intent)
+            self.state.last_response = f"Confirm karo, phir {preview.detail.lower()}"
+            self._record_journal(
+                command_text=cleaned,
+                action_name=preview.action_name,
+                confirmation_status=ConfirmationStatus.REQUESTED,
+                result_status=ResultStatus.PLANNED,
+                source=intent.source,
+                details={"intent_type": intent.intent_type.value},
+            )
+            return CommandResult(self.state.last_response, confirmation_required=True)
+
         decision = self.safety_policy.evaluate(cleaned)
         if decision is SafetyDecision.SUGGEST_ONLY:
             self.state.last_response = (

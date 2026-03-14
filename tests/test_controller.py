@@ -21,6 +21,7 @@ class FakeWindowController(WindowController):
         self.opened_apps: list[str] = []
         self.closed_apps: list[str] = []
         self.closed_tabs = 0
+        self.opened_folders: list[str] = []
 
     def launch_app(self, app_name: str):  # type: ignore[override]
         self.opened_apps.append(app_name)
@@ -35,6 +36,26 @@ class FakeWindowController(WindowController):
 
     def create_file(self, file_name: str, *, base_dir: Path | None = None) -> Path:  # type: ignore[override]
         return super().create_file(file_name, base_dir=self.base_dir)
+
+    def open_folder(self, target_name: str) -> Path:  # type: ignore[override]
+        self.opened_folders.append(target_name)
+        target = self.base_dir / target_name
+        target.mkdir(parents=True, exist_ok=True)
+        return target
+
+    def rename_path(self, source_name: str, new_name: str) -> Path:  # type: ignore[override]
+        source = self.base_dir / source_name
+        target = source.with_name(new_name)
+        source.rename(target)
+        return target
+
+    def move_path(self, source_name: str, destination_name: str) -> Path:  # type: ignore[override]
+        source = self.base_dir / source_name
+        destination = self.base_dir / destination_name
+        destination.mkdir(parents=True, exist_ok=True)
+        target = destination / source.name
+        source.rename(target)
+        return target
 
     def close_active_tab(self, process_names: tuple[str, ...]) -> bool:  # type: ignore[override]
         self.closed_tabs += 1
@@ -84,3 +105,16 @@ def test_controller_requires_confirmation_for_sensitive_command(tmp_path: Path) 
     assert first.confirmation_required is True
     assert "confirm" in first.response_text.lower()
     assert second.response_text == "https://example.com khol diya."
+
+
+def test_controller_requires_confirmation_for_move(tmp_path: Path) -> None:
+    controller = _build_controller(tmp_path)
+    (tmp_path / "source-folder").mkdir()
+
+    first = controller.handle_text_command('"source-folder" ko "dest-folder" move karo')
+    second = controller.handle_text_command("haan")
+
+    assert first.confirmation_required is True
+    assert "confirm" in first.response_text.lower()
+    assert second.response_text == "Move kar diya: source-folder"
+    assert (tmp_path / "dest-folder" / "source-folder").exists()

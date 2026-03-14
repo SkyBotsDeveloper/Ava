@@ -34,9 +34,13 @@ class ActionExecutor:
         if intent.intent_type in {
             IntentType.OPEN_BROWSER,
             IntentType.OPEN_WEBSITE,
+            IntentType.OPEN_FOLDER,
             IntentType.CLOSE_TAB,
         }:
             plan = self.browser_controller.resolve_browser_plan()
+            if intent.intent_type is IntentType.OPEN_FOLDER:
+                target_name = intent.metadata.get("target_name", "folder")
+                return ExecutionPreview("open_folder", f"`{target_name}` Explorer me khulega.")
             return ExecutionPreview("browser_plan", plan.describe())
         if intent.intent_type in {IntentType.OPEN_APP, IntentType.CLOSE_APP}:
             app_name = intent.metadata.get("app_name", "unknown app")
@@ -47,6 +51,20 @@ class ActionExecutor:
         if intent.intent_type in {IntentType.CREATE_FOLDER, IntentType.CREATE_FILE}:
             target_name = intent.metadata.get("target_name", "new item")
             return ExecutionPreview(intent.intent_type.value, f"`{target_name}` create hoga.")
+        if intent.intent_type is IntentType.MOVE_PATH:
+            source_name = intent.metadata.get("source_name", "item")
+            destination_name = intent.metadata.get("destination_name", "destination")
+            return ExecutionPreview(
+                "move_path",
+                f"`{source_name}` ko `{destination_name}` me move karenge.",
+            )
+        if intent.intent_type is IntentType.RENAME_PATH:
+            source_name = intent.metadata.get("source_name", "item")
+            new_name = intent.metadata.get("new_name", "new-name")
+            return ExecutionPreview(
+                "rename_path",
+                f"`{source_name}` ka naam `{new_name}` rakhenge.",
+            )
         return ExecutionPreview("unimplemented", "Execution path scaffolded for a later phase.")
 
     def execute(self, intent: ParsedIntent) -> ExecutionResult:
@@ -68,6 +86,15 @@ class ActionExecutor:
                 success=True,
                 detail=f"{url} khol diya.",
                 data={"url": url, **plan.as_dict()},
+            )
+
+        if intent.intent_type is IntentType.OPEN_FOLDER:
+            target = self.window_controller.open_folder(intent.metadata["target_name"])
+            return ExecutionResult(
+                action_name="open_folder",
+                success=True,
+                detail=f"{target.name or target.drive} Explorer me khol diya.",
+                data={"path": str(target)},
             )
 
         if intent.intent_type is IntentType.CLOSE_TAB:
@@ -120,6 +147,30 @@ class ActionExecutor:
                 action_name="create_file",
                 success=True,
                 detail=f"File bana di: {target.name}",
+                data={"path": str(target)},
+            )
+
+        if intent.intent_type is IntentType.RENAME_PATH:
+            target = self.window_controller.rename_path(
+                intent.metadata["source_name"],
+                intent.metadata["new_name"],
+            )
+            return ExecutionResult(
+                action_name="rename_path",
+                success=True,
+                detail=f"Rename kar diya: {target.name}",
+                data={"path": str(target)},
+            )
+
+        if intent.intent_type is IntentType.MOVE_PATH:
+            target = self.window_controller.move_path(
+                intent.metadata["source_name"],
+                intent.metadata["destination_name"],
+            )
+            return ExecutionResult(
+                action_name="move_path",
+                success=True,
+                detail=f"Move kar diya: {target.name}",
                 data={"path": str(target)},
             )
 
