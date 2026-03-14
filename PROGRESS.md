@@ -19,8 +19,10 @@
 - Added a Phase 3 voice runtime with async session orchestration, audio playback wiring, wake-word scaffolding, and VAD-based turn ending
 - Added a manual voice trigger path that works without wake-word models
 - Added initial Phase 3 tests for prompting, Gemini event normalization, and voice runtime state/journal flow
-- Added a sacrificial browser controller that launches an isolated Edge/Chrome window with a temporary profile and CDP automation for safe browser verification
-- Wired isolated browser actions into Ava's real intent/controller/executor command pipeline for website open, tab control, page search/info, YouTube playlist playback, and confirmation-gated Instagram/WhatsApp flows
+- Added a sacrificial browser controller that launches an isolated Edge/Chrome window with a temporary profile and CDP automation for fallback/testing browser verification
+- Switched the normal browser command default to the user's real Microsoft Edge profile/session, while keeping the sacrificial browser as a fallback mode
+- Wired live Edge browser actions into Ava's real intent/controller/executor command pipeline for website open, tab control, page search/info, YouTube result opening, and confirmation-gated Instagram/WhatsApp flows
+- Wired spoken voice commands into the same real controller/executor browser path with transcript normalization for common Gemini STT split-word variants
 
 ### Verified
 
@@ -34,11 +36,12 @@
 - Phase 3 runtime tests pass without a real Gemini key by using fakes for the live client
 - Real Gemini Live text fallback now connects with the `.env` key and returns a Hinglish response
 - Real manual voice trigger starts `listening` and transitions to `thinking` after manual stop, even with wake-word paths still empty
-- Real sacrificial browser verification succeeds for isolated website open/navigation, tab actions, page info detection, YouTube playlist playback, Instagram login page open, and WhatsApp Web open without touching the user's real browser session
-- Real Ava command-pipeline verification succeeds for isolated browser commands via `AvaController.handle_text_command(...)`, including confirmation-gated tab close, Instagram login, and WhatsApp Web
+- Real sacrificial browser verification succeeds for isolated website open/navigation, tab actions, page info detection, YouTube playlist playback, Instagram login page open, and WhatsApp Web open
+- Real Ava command-pipeline verification succeeds for live Edge browser commands via `AvaController.handle_text_command(...)`, including confirmation-gated tab close, Instagram login, and WhatsApp Web
+- Real spoken-command verification succeeds against the live Gemini STT pipeline for browser open, address bar focus, new tab, tab switch, page search, page title/url readout, confirmation-gated tab close, YouTube open, spoken YouTube result opening, confirmation-gated Instagram login page open, and confirmation-gated WhatsApp Web open
 
 ### Blocked
 
 - Always-on wake testing is blocked until a real openWakeWord model path is configured
-- The current push-to-talk/manual trigger shortcut is app-focused, not a system-wide global hotkey yet
+- Exact arbitrary spoken URL dictation and longer spoken search queries are still less reliable than text fallback because Gemini STT can distort domains/queries before they reach the intent router
 - The machine's standard Python 3.11 launcher path is inconsistent, so local verification uses a local Python 3.11 conda environment workaround

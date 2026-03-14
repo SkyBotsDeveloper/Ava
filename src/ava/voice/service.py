@@ -7,6 +7,7 @@ from concurrent.futures import Future
 
 from PySide6.QtCore import QObject, Signal
 
+from ava.app.controller import AvaController
 from ava.app.state import AssistantState
 from ava.config.settings import Settings
 from ava.live.gemini import GeminiLiveSessionClient
@@ -28,10 +29,12 @@ class VoiceRuntimeService:
         settings: Settings,
         state: AssistantState,
         journal: ActionJournalStore,
+        controller: AvaController | None = None,
     ) -> None:
         self.settings = settings
         self.state = state
         self.journal = journal
+        self.controller = controller
         self.signals = VoiceRuntimeSignals()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
@@ -135,6 +138,7 @@ class VoiceRuntimeService:
             )
             if self._availability.wake_ready
             else None,
+            command_controller=self.controller,
             on_state_changed=self.signals.stateChanged.emit,
             on_journal_changed=self.signals.journalChanged.emit,
         )

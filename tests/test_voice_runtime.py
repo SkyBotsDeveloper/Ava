@@ -5,8 +5,10 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
 
+from ava.app.controller import CommandResult
 from ava.app.state import AssistantState, AssistantStatus
 from ava.config.settings import Settings
+from ava.intents.models import IntentType, ParsedIntent
 from ava.live.interfaces import (
     AudioChunkEvent,
     LiveSessionConfig,
@@ -47,6 +49,32 @@ class FakeLiveClient:
     async def receive(self) -> AsyncIterator[object]:
         for event in self.receive_events:
             yield event
+
+
+class FakeIntentRouter:
+    def parse(self, raw_text: str, source: str = "text") -> ParsedIntent:
+        normalized = raw_text.lower().strip()
+        intent_type = (
+            IntentType.OPEN_BROWSER if "website kholo" in normalized else IntentType.GENERAL_COMMAND
+        )
+        return ParsedIntent(
+            intent_type=intent_type,
+            raw_text=raw_text,
+            normalized_text=normalized,
+            source=source,
+        )
+
+
+class FakeVoiceCommandController:
+    def __init__(self, state: AssistantState) -> None:
+        self.state = state
+        self.intent_router = FakeIntentRouter()
+        self.calls: list[tuple[str, str]] = []
+
+    def handle_text_command(self, raw_text: str, *, source: str = "text") -> CommandResult:
+        self.calls.append((raw_text, source))
+        self.state.last_response = "Browser khol diya."
+        return CommandResult(response_text=self.state.last_response)
 
 
 @dataclass(slots=True)
@@ -200,4 +228,76 @@ def test_voice_runtime_flushes_audio_on_turn_complete(tmp_path) -> None:
     asyncio.run(scenario())
 
     assert audio_gateway.flushed is True
+    assert state.status is AssistantStatus.IDLE
+
+
+def test_voice_runtime_routes_spoken_command_into_controller(tmp_path) -> None:
+    settings = Settings(_env_file=None, gemini_api_key="test-key")
+    state = AssistantState()
+    journal = _build_journal(tmp_path)
+    live_client = FakeLiveClient(
+        receive_events=[
+            TranscriptEvent(text="website kholo", is_input=True, is_final=True),
+            TurnBoundaryEvent(phase="turn_complete", reason="stop"),
+        ]
+    )
+    audio_gateway = FakeAudioGateway(played_chunks=[])
+    controller = FakeVoiceCommandController(state)
+    runtime = VoiceRuntime(
+        settings=settings,
+        state=state,
+        journal=journal,
+        live_client=live_client,
+        audio_gateway=audio_gateway,
+        command_controller=controller,
+    )
+
+    async def scenario() -> None:
+        await runtime.begin_manual_capture()
+        await runtime.end_manual_capture()
+        receive_task = runtime._receive_task
+        assert receive_task is not None
+        await receive_task
+
+    asyncio.run(scenario())
+
+    assert controller.calls == [("website kholo", "voice")]
+    assert live_client.sent_text == []
+    assert state.last_response == "Browser khol diya."
+    assert state.status is AssistantStatus.IDLE
+
+
+def test_voice_runtime_detects_partial_spoken_command_before_final_boundary(tmp_path) -> None:
+    settings = Settings(_env_file=None, gemini_api_key="test-key")
+    state = AssistantState()
+    journal = _build_journal(tmp_path)
+    live_client = FakeLiveClient(
+        receive_events=[
+            TranscriptEvent(text="website kholo", is_input=True, is_final=False),
+            TranscriptEvent(text="Ignore this late model output", is_input=False, is_final=False),
+            TurnBoundaryEvent(phase="turn_complete", reason="stop"),
+        ]
+    )
+    audio_gateway = FakeAudioGateway(played_chunks=[])
+    controller = FakeVoiceCommandController(state)
+    runtime = VoiceRuntime(
+        settings=settings,
+        state=state,
+        journal=journal,
+        live_client=live_client,
+        audio_gateway=audio_gateway,
+        command_controller=controller,
+    )
+
+    async def scenario() -> None:
+        await runtime.begin_manual_capture()
+        await runtime.end_manual_capture()
+        receive_task = runtime._receive_task
+        assert receive_task is not None
+        await receive_task
+
+    asyncio.run(scenario())
+
+    assert controller.calls == [("website kholo", "voice")]
+    assert state.last_response == "Browser khol diya."
     assert state.status is AssistantStatus.IDLE

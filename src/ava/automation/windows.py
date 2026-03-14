@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import logging
 import os
@@ -22,11 +23,22 @@ except ImportError:  # pragma: no cover - optional automation dependency
     Application = None
     send_keys = None
 
+try:
+    import win32clipboard
+except ImportError:  # pragma: no cover - optional automation dependency
+    win32clipboard = None
+
 _SW_RESTORE: Final = 9
 _VK_CONTROL: Final = 0x11
 _VK_RETURN: Final = 0x0D
+_VK_TAB: Final = 0x09
 _VK_W: Final = 0x57
 _VK_L: Final = 0x4C
+_VK_F: Final = 0x46
+_VK_T: Final = 0x54
+_VK_SHIFT: Final = 0x10
+_VK_C: Final = 0x43
+_VK_ESCAPE: Final = 0x1B
 _WM_CHAR: Final = 0x0102
 _WM_KEYDOWN: Final = 0x0100
 _WM_KEYUP: Final = 0x0101
@@ -332,10 +344,7 @@ class WindowController:
         hwnd = self._browser_window_for_processes(process_names)
         if hwnd is None:
             return False
-        if send_keys is not None:
-            send_keys("^w", pause=0.02)
-        else:
-            self._post_hotkey(hwnd, (_VK_CONTROL,), _VK_W)
+        self._send_browser_keys(hwnd, "^w", (_VK_CONTROL,), _VK_W)
         logger.info(
             "Active browser tab close sent",
             extra={"event": "browser_tab_close_sent", "process_names": process_names, "hwnd": hwnd},
@@ -346,17 +355,10 @@ class WindowController:
         hwnd = self._browser_window_for_processes(process_names)
         if hwnd is None:
             return False
-        if send_keys is not None:
-            send_keys("^l", pause=0.02)
-            time.sleep(0.12)
-            send_keys(url, with_spaces=True, pause=0.01)
-            send_keys("{ENTER}", pause=0.02)
-        else:
-            self._post_hotkey(hwnd, (_VK_CONTROL,), _VK_L)
-            time.sleep(0.12)
-            self._type_text(hwnd, url)
-            time.sleep(0.05)
-            self._post_key(hwnd, _VK_RETURN)
+        self._focus_address_bar(hwnd)
+        time.sleep(0.12)
+        self._type_into_focused_browser(hwnd, url)
+        self._press_browser_enter(hwnd)
         logger.info(
             "URL typed into active browser",
             extra={
@@ -367,6 +369,115 @@ class WindowController:
             },
         )
         return True
+
+    def focus_address_bar_in_browser(self, process_names: tuple[str, ...]) -> bool:
+        hwnd = self._browser_window_for_processes(process_names)
+        if hwnd is None:
+            return False
+        self._focus_address_bar(hwnd)
+        logger.info(
+            "Focused browser address bar",
+            extra={
+                "event": "browser_address_bar_focused",
+                "process_names": process_names,
+                "hwnd": hwnd,
+            },
+        )
+        return True
+
+    def open_new_tab_in_browser(
+        self,
+        process_names: tuple[str, ...],
+        url: str = "about:blank",
+    ) -> bool:
+        hwnd = self._browser_window_for_processes(process_names)
+        if hwnd is None:
+            return False
+        self._send_browser_keys(hwnd, "^t", (_VK_CONTROL,), _VK_T)
+        time.sleep(0.2)
+        normalized_url = url.strip()
+        if normalized_url and normalized_url.lower() != "about:blank":
+            self._type_into_focused_browser(hwnd, normalized_url)
+            self._press_browser_enter(hwnd)
+        logger.info(
+            "Opened browser new tab",
+            extra={
+                "event": "browser_new_tab_opened",
+                "process_names": process_names,
+                "hwnd": hwnd,
+                "url": normalized_url or "about:blank",
+            },
+        )
+        return True
+
+    def switch_browser_tab(
+        self,
+        process_names: tuple[str, ...],
+        *,
+        direction: str = "next",
+    ) -> bool:
+        hwnd = self._browser_window_for_processes(process_names)
+        if hwnd is None:
+            return False
+        if direction == "previous":
+            if send_keys is not None:
+                send_keys("^+{TAB}", pause=0.02)
+            else:
+                self._post_hotkey(hwnd, (_VK_CONTROL, _VK_SHIFT), _VK_TAB)
+        else:
+            self._send_browser_keys(hwnd, "^{TAB}", (_VK_CONTROL,), _VK_TAB)
+        logger.info(
+            "Switched browser tab",
+            extra={
+                "event": "browser_tab_switched",
+                "process_names": process_names,
+                "hwnd": hwnd,
+                "direction": direction,
+            },
+        )
+        return True
+
+    def search_on_page_in_browser(self, process_names: tuple[str, ...], query: str) -> bool:
+        hwnd = self._browser_window_for_processes(process_names)
+        if hwnd is None:
+            return False
+        self._send_browser_keys(hwnd, "^f", (_VK_CONTROL,), _VK_F)
+        time.sleep(0.15)
+        self._type_into_focused_browser(hwnd, query)
+        self._press_browser_enter(hwnd)
+        logger.info(
+            "Triggered browser in-page search",
+            extra={
+                "event": "browser_page_search",
+                "process_names": process_names,
+                "hwnd": hwnd,
+                "query": query,
+            },
+        )
+        return True
+
+    def current_browser_title_and_url(
+        self,
+        process_names: tuple[str, ...],
+    ) -> tuple[str, str] | None:
+        hwnd = self._browser_window_for_processes(process_names)
+        if hwnd is None:
+            return None
+        title = self._window_title(hwnd)
+        url = self._copy_browser_url(hwnd)
+        cleaned_title = title.removesuffix(" - Microsoft Edge")
+        cleaned_title = cleaned_title.removesuffix(" - Google Chrome").strip()
+        logger.info(
+            "Read browser title and URL",
+            extra={
+                "event": "browser_page_info_read",
+                "process_names": process_names,
+                "hwnd": hwnd,
+                "title": cleaned_title,
+                "url": url,
+            },
+        )
+        return cleaned_title or title, url
 
     def _build_target_path(self, raw_target: str, *, base_dir: Path | None) -> Path:
         target = Path(raw_target.strip().strip("\"'"))
@@ -385,6 +496,12 @@ class WindowController:
             time.sleep(0.25)
         return hwnd
 
+    def _window_title(self, hwnd: int) -> str:
+        length = int(self._user32.GetWindowTextLengthW(hwnd))
+        buffer = ctypes.create_unicode_buffer(length + 1)
+        self._user32.GetWindowTextW(hwnd, buffer, length + 1)
+        return str(buffer.value)
+
     def _type_text(self, hwnd: int, text: str) -> None:
         for char in text:
             self._user32.PostMessageW(hwnd, _WM_CHAR, ord(char), 0)
@@ -402,6 +519,84 @@ class WindowController:
         self._user32.PostMessageW(hwnd, _WM_KEYUP, key, 0)
         for modifier in reversed(modifiers):
             self._user32.PostMessageW(hwnd, _WM_KEYUP, modifier, 0)
+
+    def _send_browser_keys(
+        self,
+        hwnd: int,
+        sequence: str,
+        fallback_modifiers: tuple[int, ...],
+        fallback_key: int,
+    ) -> None:
+        if send_keys is not None:
+            send_keys(sequence, pause=0.02)
+            return
+        self._post_hotkey(hwnd, fallback_modifiers, fallback_key)
+
+    def _focus_address_bar(self, hwnd: int) -> None:
+        self._send_browser_keys(hwnd, "^l", (_VK_CONTROL,), _VK_L)
+
+    def _press_browser_enter(self, hwnd: int) -> None:
+        if send_keys is not None:
+            send_keys("{ENTER}", pause=0.02)
+            return
+        self._post_key(hwnd, _VK_RETURN)
+
+    def _type_into_focused_browser(self, hwnd: int, text: str) -> None:
+        if send_keys is not None:
+            send_keys(text, with_spaces=True, pause=0.01)
+            return
+        self._type_text(hwnd, text)
+
+    def _copy_browser_url(self, hwnd: int) -> str:
+        previous_clipboard = self._read_clipboard_text()
+        if win32clipboard is not None:
+            self._set_clipboard_text("")
+        self._focus_address_bar(hwnd)
+        time.sleep(0.15)
+        self._send_browser_keys(hwnd, "^c", (_VK_CONTROL,), _VK_C)
+        copied = self._wait_for_clipboard_text(previous_clipboard)
+        self._send_browser_keys(hwnd, "{ESC}", tuple(), _VK_ESCAPE)
+        if previous_clipboard:
+            self._set_clipboard_text(previous_clipboard)
+        return copied
+
+    def _wait_for_clipboard_text(
+        self,
+        previous_text: str | None,
+        timeout_seconds: float = 2.0,
+    ) -> str:
+        deadline = time.time() + timeout_seconds
+        while time.time() < deadline:
+            current = self._read_clipboard_text()
+            if current and current != previous_text:
+                return current
+            time.sleep(0.05)
+        return self._read_clipboard_text() or ""
+
+    def _read_clipboard_text(self) -> str | None:
+        if win32clipboard is None:
+            return None
+        try:
+            win32clipboard.OpenClipboard()
+            if win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_UNICODETEXT):
+                return str(win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT))
+        except Exception:
+            return None
+        finally:
+            with contextlib.suppress(Exception):
+                win32clipboard.CloseClipboard()
+        return None
+
+    def _set_clipboard_text(self, text: str) -> None:
+        if win32clipboard is None:
+            return
+        try:
+            win32clipboard.OpenClipboard()
+            win32clipboard.EmptyClipboard()
+            win32clipboard.SetClipboardText(text, win32clipboard.CF_UNICODETEXT)
+        finally:
+            with contextlib.suppress(Exception):
+                win32clipboard.CloseClipboard()
 
 
 def browser_process_names(browser_name: str) -> tuple[str, ...]:

@@ -41,14 +41,14 @@ class AvaController:
         self.executor = executor
         self._pending_action: PendingAction | None = None
 
-    def handle_text_command(self, raw_text: str) -> CommandResult:
+    def handle_text_command(self, raw_text: str, *, source: str = "text") -> CommandResult:
         cleaned = raw_text.strip()
         if not cleaned:
             self.state.last_response = "Command khaali hai."
             return CommandResult(self.state.last_response)
 
         self.state.last_command = cleaned
-        intent = self.intent_router.parse(cleaned)
+        intent = self.intent_router.parse(cleaned, source=source)
 
         if intent.intent_type is IntentType.CONFIRM:
             return self._handle_confirmation(True)
@@ -121,6 +121,8 @@ class AvaController:
             IntentType.MOVE_PATH,
             IntentType.RENAME_PATH,
             IntentType.CLOSE_TAB,
+            IntentType.OPEN_INSTAGRAM_LOGIN,
+            IntentType.OPEN_WHATSAPP_WEB,
         }
         if intent.intent_type in confirmation_required_intents:
             self._pending_action = PendingAction(command_text=cleaned, intent=intent)

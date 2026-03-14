@@ -74,6 +74,11 @@ class ActionExecutor:
                     "focus_address_bar",
                     "Browser ka address bar focus karenge.",
                 )
+            if intent.intent_type is IntentType.CLOSE_TAB:
+                return ExecutionPreview(
+                    "close_tab",
+                    "Current browser tab band karenge.",
+                )
             if intent.intent_type is IntentType.PLAY_YOUTUBE_PLAYLIST:
                 query = intent.metadata.get("query", "playlist")
                 return ExecutionPreview(
@@ -81,14 +86,24 @@ class ActionExecutor:
                     f"YouTube par `{query}` playlist search karke play karenge.",
                 )
             if intent.intent_type is IntentType.OPEN_INSTAGRAM_LOGIN:
+                detail = (
+                    "Instagram login page isolated browser me khulega."
+                    if plan.uses_isolated_session
+                    else "Instagram login page Edge me khulega."
+                )
                 return ExecutionPreview(
                     "open_instagram_login",
-                    "Instagram login page isolated browser me khulega.",
+                    detail,
                 )
             if intent.intent_type is IntentType.OPEN_WHATSAPP_WEB:
+                detail = (
+                    "WhatsApp Web isolated browser me khulega."
+                    if plan.uses_isolated_session
+                    else "WhatsApp Web Edge me khulega."
+                )
                 return ExecutionPreview(
                     "open_whatsapp_web",
-                    "WhatsApp Web isolated browser me khulega.",
+                    detail,
                 )
             return ExecutionPreview("browser_plan", plan.describe())
         if intent.intent_type in {IntentType.OPEN_APP, IntentType.CLOSE_APP}:
@@ -194,10 +209,15 @@ class ActionExecutor:
 
         if intent.intent_type is IntentType.PLAY_YOUTUBE_PLAYLIST:
             playback = self.browser_controller.play_youtube_playlist(intent.metadata["query"])
+            detail = (
+                f"YouTube par `{intent.metadata['query']}` playlist chala di."
+                if playback.playing
+                else f"YouTube par `{intent.metadata['query']}` result khol diya."
+            )
             return ExecutionResult(
                 action_name="play_youtube_playlist",
                 success=True,
-                detail=f"YouTube par `{intent.metadata['query']}` playlist chala di.",
+                detail=detail,
                 data=playback.as_dict(),
             )
 

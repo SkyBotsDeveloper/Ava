@@ -6,8 +6,10 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from ava.app.controller import AvaController
 from ava.app.state import AssistantState, AssistantStatus
 from ava.config.settings import Settings
+from ava.intents.models import IntentType
 from ava.live.interfaces import (
     AudioChunkEvent,
     LiveSessionClient,
@@ -63,6 +65,7 @@ class VoiceRuntime:
         live_client: LiveSessionClient,
         audio_gateway: AudioGateway | None = None,
         wake_word_engine: WakeWordEngine | None = None,
+        command_controller: AvaController | None = None,
         on_state_changed: Callable[[], None] | None = None,
         on_journal_changed: Callable[[], None] | None = None,
     ) -> None:
@@ -72,6 +75,7 @@ class VoiceRuntime:
         self._live_client = live_client
         self._audio_gateway = audio_gateway
         self._wake_word_engine = wake_word_engine
+        self._command_controller = command_controller
         self._on_state_changed = on_state_changed
         self._on_journal_changed = on_journal_changed
         self._availability = self.inspect_availability(settings)
@@ -88,6 +92,9 @@ class VoiceRuntime:
         self._output_audio_chunk_count = 0
         self._vad = VoiceActivityDetector()
         self._generation_complete_received = False
+        self._pending_voice_command_text: str | None = None
+        self._command_feedback_in_progress = False
+        self._suppress_model_output = False
 
     @property
     def availability(self) -> VoiceRuntimeAvailability:
@@ -238,6 +245,9 @@ class VoiceRuntime:
         self._capture_active = False
         self._speech_detected = False
         self._silence_ms = 0
+        self._pending_voice_command_text = None
+        self._command_feedback_in_progress = False
+        self._suppress_model_output = False
         if self._audio_gateway is not None:
             await self._audio_gateway.interrupt_output()
         if self._receive_task is not None:
@@ -280,6 +290,9 @@ class VoiceRuntime:
         self._input_transcript = ""
         self._output_transcript = ""
         self._generation_complete_received = False
+        self._pending_voice_command_text = None
+        self._command_feedback_in_progress = False
+        self._suppress_model_output = False
         self._state.status = AssistantStatus.LISTENING
         self._state.last_response = "Haan, boliye."
         self._record_action(
@@ -460,7 +473,10 @@ class VoiceRuntime:
                         "transcript": self._input_transcript,
                     },
                 )
+                self._detect_voice_command_candidate()
         else:
+            if self._suppress_model_output and not self._command_feedback_in_progress:
+                return
             if event.text:
                 self._output_transcript = self._merge_transcript(
                     self._output_transcript,
@@ -479,6 +495,8 @@ class VoiceRuntime:
         self._notify_state()
 
     async def _apply_audio(self, event: AudioChunkEvent) -> None:
+        if self._suppress_model_output and not self._command_feedback_in_progress:
+            return
         self._state.status = AssistantStatus.SPEAKING
         self._output_audio_chunk_count += 1
         logger.info(
@@ -507,6 +525,18 @@ class VoiceRuntime:
                 "reason": event.reason,
             },
         )
+        if (
+            event.phase in {"turn_complete", "waiting_for_input"}
+            and not self._pending_voice_command_text
+        ):
+            self._detect_voice_command_candidate()
+        if (
+            event.phase in {"turn_complete", "waiting_for_input"}
+            and self._pending_voice_command_text
+            and not self._command_feedback_in_progress
+        ):
+            await self._execute_voice_command()
+            return
         if event.phase == "generation_complete":
             self._generation_complete_received = True
             if self._state.status is not AssistantStatus.SPEAKING:
@@ -573,6 +603,9 @@ class VoiceRuntime:
         self._input_transcript = ""
         self._output_transcript = ""
         self._generation_complete_received = False
+        self._pending_voice_command_text = None
+        self._command_feedback_in_progress = False
+        self._suppress_model_output = False
         self._notify_state()
 
     def _extract_sample_rate(self, mime_type: str) -> int:
@@ -599,3 +632,55 @@ class VoiceRuntime:
             "" if current.endswith((" ", "\n")) or chunk.startswith((".", ",", "!", "?")) else " "
         )
         return f"{current}{separator}{chunk}"
+
+    def _detect_voice_command_candidate(self) -> None:
+        if self._command_controller is None:
+            return
+        transcript = self._input_transcript.strip()
+        if not transcript:
+            return
+        intent = self._command_controller.intent_router.parse(transcript, source="voice")
+        if intent.intent_type is IntentType.GENERAL_COMMAND:
+            return
+        self._pending_voice_command_text = transcript
+        self._suppress_model_output = True
+        logger.info(
+            "Voice command transcript detected",
+            extra={
+                "event": "voice_command_detected",
+                "transcript": transcript,
+                "intent_type": intent.intent_type.value,
+            },
+        )
+
+    async def _execute_voice_command(self) -> None:
+        transcript = (self._pending_voice_command_text or "").strip()
+        self._pending_voice_command_text = None
+        if not transcript or self._command_controller is None:
+            await self._finish_model_turn()
+            return
+        if self._audio_gateway is not None:
+            await self._audio_gateway.interrupt_output()
+        self._state.status = AssistantStatus.THINKING
+        self._notify_state()
+        result = self._command_controller.handle_text_command(transcript, source="voice")
+        if self._audio_gateway is not None:
+            if self._state.muted:
+                await self._audio_gateway.mute()
+            else:
+                await self._audio_gateway.unmute()
+        logger.info(
+            "Voice command executed through controller",
+            extra={
+                "event": "voice_command_executed",
+                "transcript": transcript,
+                "confirmation_required": result.confirmation_required,
+                "response_text": result.response_text,
+            },
+        )
+        self._input_transcript = ""
+        self._output_transcript = ""
+        self._generation_complete_received = False
+        self._command_feedback_in_progress = False
+        self._state.status = AssistantStatus.IDLE
+        self._notify_state()

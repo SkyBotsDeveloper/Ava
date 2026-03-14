@@ -16,13 +16,13 @@ Phase 4 browser command work is now underway on top of the frozen shell:
 - Intent routing, browser strategy defaults, and safety policy scaffolding
 - Gemini Live client adapter and Hinglish system prompt
 - Async voice runtime for Gemini text turns, manual voice trigger, audio playback, wake-word monitoring, and state transitions
-- Isolated sacrificial browser controller plus real Ava command-pipeline wiring for safe browser MVP flows
+- Live Edge-default browser control plus sacrificial-browser fallback for safer verification and testing flows
 
 ## Product defaults locked in this repo
 
 - Voice-first, but text command, push-to-talk, mute, and emergency stop are mandatory controls
 - Wake-word detection will use a proven local detector (`openWakeWord`) as the primary path in the next phase
-- Browser command execution currently defaults to an isolated sacrificial Edge/Chrome session so the user's real browser stays untouched during Phase 4 verification
+- Browser command execution now defaults to the real Microsoft Edge profile/session, with the sacrificial browser kept as a fallback/testing mode
 - Automation priority is UI Automation first, input simulation second, DOM automation third, visual fallback last
 - Development secrets stay in `.env`; packaged builds should migrate sensitive secrets to Windows Credential Manager or an equivalent secure store
 
@@ -72,10 +72,11 @@ tests/               Unit tests and integration scaffolding
 
 ## Browser behavior
 
-- If a suitable live Chrome or Edge session is already open, Ava should control that first.
-- If no suitable live session exists, Ava should open the preferred browser profile in Microsoft Edge by default unless the setting is changed later.
+- If a suitable live Microsoft Edge session is already open, Ava should control that first.
+- If no suitable live Edge session exists, Ava should open the preferred Microsoft Edge profile by default unless the setting is changed later.
 - Playwright is a fallback for flows that need DOM certainty, not the default browsing experience.
-- During the current Phase 4 browser MVP, `AVA_BROWSER_COMMAND_MODE=isolated` keeps Ava on a disposable sacrificial browser profile for safer verification.
+- `AVA_BROWSER_COMMAND_MODE=live` is the normal user mode.
+- `AVA_BROWSER_COMMAND_MODE=isolated` is now only for fallback/testing on a disposable sacrificial browser profile.
 
 ## Safety baseline
 
@@ -83,7 +84,7 @@ tests/               Unit tests and integration scaffolding
 - `Stop Ava` and `Cancel` are hard interruption commands and must stop active tasks safely.
 - Banking, password managers, and similarly sensitive contexts are private-by-default and should stay suggestion-only unless explicitly overridden.
 
-## Phase 3 blockers
+## Current voice/browser caveats
 
 - Always-on wake testing is blocked until `AVA_WAKEWORD_MODEL_PATHS` points to a real local openWakeWord model file.
-- The current `Ctrl+Alt+A` manual trigger path is app-focused, not a system-wide global hotkey yet.
+- Spoken browser commands are wired into the real command pipeline, but exact arbitrary URL dictation and long spoken search queries are still less reliable than text fallback because Gemini STT can distort domain/query words.

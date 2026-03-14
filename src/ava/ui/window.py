@@ -128,6 +128,7 @@ def run_ui(context: BootstrapContext) -> int:
         settings=context.settings,
         state=context.state,
         journal=context.journal,
+        controller=context.controller,
     )
     voice_service.start()
     bridge = UiBridge(context.controller, app_state, history_model, voice_service)

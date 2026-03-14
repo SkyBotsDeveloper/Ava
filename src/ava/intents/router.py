@@ -7,6 +7,27 @@ from ava.intents.models import IntentType, ParsedIntent
 
 
 class IntentRouter:
+    NORMALIZATION_REPLACEMENTS: Final[tuple[tuple[str, str], ...]] = (
+        (r"\bo\s*pen\b", "open"),
+        (r"\bwe\s*b\s*site\b", "website"),
+        (r"\bwe\s+bsite\b", "website"),
+        (r"\bbsite\b", "website"),
+        (r"\byou\s*tu\s*be\b", "youtube"),
+        (r"\bta\s*p\b", "tab"),
+        (r"\bsear\s*ch\b", "search"),
+        (r"\bsho\s*w\b", "show"),
+        (r"\bcur\s*rent\b", "current"),
+        (r"\bti\s*tle\b", "title"),
+        (r"\bpyt\s*hon\b", "python"),
+        (r"\bplay\s*list\b", "playlist"),
+        (r"\bin\s*sta\s*gram\b", "instagram"),
+        (r"\blo\s*gin\b", "login"),
+        (r"\bwha\s*tsapp\b", "whatsapp"),
+        (r"\bad\s*dre\s*ss\s*(?:bar|ball)\b", "address bar"),
+        (r"\bpar\s+jo\b", "par jao"),
+        (r"\bcolo\b", "kholo"),
+        (r"\bholo\b", "kholo"),
+    )
     CANCEL_TOKENS: Final = ("stop ava", "cancel", "bas", "ruk ja", "stop")
     CONFIRM_TOKENS: Final = ("haan", "yes", "confirm", "kar do", "theek hai")
     DENY_TOKENS: Final = ("nahi", "no", "mat karo", "cancel it")
@@ -53,7 +74,7 @@ class IntentRouter:
     }
 
     def parse(self, raw_text: str, source: str = "text") -> ParsedIntent:
-        normalized = " ".join(raw_text.lower().split())
+        normalized = self._normalize_text(raw_text)
 
         if any(token == normalized or token in normalized for token in self.CANCEL_TOKENS):
             return ParsedIntent(
@@ -125,7 +146,7 @@ class IntentRouter:
             return None
         if not any(token in normalized for token in ("search", "dhundo", "find")):
             return None
-        query = self._extract_search_query(raw_text)
+        query = self._extract_search_query(raw_text) or self._extract_search_query(normalized)
         if query is None:
             return None
         return ParsedIntent(
@@ -447,13 +468,31 @@ class IntentRouter:
                 )
 
         url_match = re.search(
-            r"(https?://\S+|file:///\S+|www\.\S+\.\S+)",
+            r"(https?://\S+|file:///\S+|www\.\S+\.\S+|\b[a-z0-9-]+\.[a-z]{2,}(?:/\S*)?\b)",
             raw_text,
             flags=re.IGNORECASE,
         )
-        if url_match and any(token in normalized for token in ("khol", "open", "launch")):
+        if url_match is None:
+            url_match = re.search(
+                r"(https?://\S+|file:///\S+|www\.\S+\.\S+|\b[a-z0-9-]+\.[a-z]{2,}(?:/\S*)?\b)",
+                normalized,
+                flags=re.IGNORECASE,
+            )
+        normalized_url_candidate = ""
+        if url_match:
+            normalized_url_candidate = re.sub(
+                r"(?i)^(https?://|file:///|www\.)",
+                "",
+                url_match.group(1).lower(),
+            )
+        if url_match and (
+            any(token in normalized for token in ("khol", "open", "launch"))
+            or (source == "voice" and normalized == normalized_url_candidate)
+        ):
             url = url_match.group(1)
             if url.lower().startswith("www."):
+                url = f"https://{url}"
+            elif not re.match(r"(?i)^(https?://|file:///)", url):
                 url = f"https://{url}"
             return ParsedIntent(
                 IntentType.OPEN_WEBSITE,
@@ -469,9 +508,17 @@ class IntentRouter:
         quoted = cls._extract_quoted_names(raw_text)
         if quoted:
             return quoted[0]
+        reverse_match = re.search(
+            r"(?i)page\s+par\s+(.+?)\s+(?:search|find|dhundo)\b",
+            raw_text,
+        )
+        if reverse_match:
+            return reverse_match.group(1).strip(" .")
         match = re.search(r"(?i)(?:search|find|dhundo)\s+(.+?)(?:\s+on|\s+par|\s*$)", raw_text)
         if match:
-            return match.group(1).strip(" .")
+            candidate = match.group(1).strip(" .")
+            if candidate.lower() not in {"karo", "karo na", "please"}:
+                return candidate
         return None
 
     @classmethod
@@ -519,3 +566,13 @@ class IntentRouter:
             if candidate:
                 return candidate
         return None
+
+    @classmethod
+    def _normalize_text(cls, raw_text: str) -> str:
+        normalized = " ".join(raw_text.lower().split())
+        for pattern, replacement in cls.NORMALIZATION_REPLACEMENTS:
+            normalized = re.sub(pattern, replacement, normalized)
+        normalized = re.sub(r"\b([a-z0-9-]+)\s+dot\s+([a-z]{2,})(?=\b)", r"\1.\2", normalized)
+        normalized = re.sub(r"\b([a-z0-9-]+)\.\s+([a-z]{2,})(?=\b)", r"\1.\2", normalized)
+        normalized = re.sub(r"\.(?=\s|$)", "", normalized)
+        return normalized

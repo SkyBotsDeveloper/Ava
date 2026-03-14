@@ -23,6 +23,8 @@ class FakeWindowController(WindowController):
         self.closed_apps: list[str] = []
         self.closed_tabs = 0
         self.opened_folders: list[str] = []
+        self.live_browser_title = "Example"
+        self.live_browser_url = "https://example.com"
 
     def launch_app(self, app_name: str):  # type: ignore[override]
         self.opened_apps.append(app_name)
@@ -63,7 +65,38 @@ class FakeWindowController(WindowController):
         return True
 
     def open_url_in_active_browser(self, process_names: tuple[str, ...], url: str) -> bool:  # type: ignore[override]
+        self.live_browser_title = url
+        self.live_browser_url = url
         return True
+
+    def focus_address_bar_in_browser(self, process_names: tuple[str, ...]) -> bool:  # type: ignore[override]
+        return True
+
+    def open_new_tab_in_browser(  # type: ignore[override]
+        self,
+        process_names: tuple[str, ...],
+        url: str = "about:blank",
+    ) -> bool:
+        self.live_browser_title = url
+        self.live_browser_url = url
+        return True
+
+    def switch_browser_tab(  # type: ignore[override]
+        self,
+        process_names: tuple[str, ...],
+        *,
+        direction: str = "next",
+    ) -> bool:
+        return True
+
+    def search_on_page_in_browser(self, process_names: tuple[str, ...], query: str) -> bool:  # type: ignore[override]
+        return True
+
+    def current_browser_title_and_url(  # type: ignore[override]
+        self,
+        process_names: tuple[str, ...],
+    ) -> tuple[str, str] | None:
+        return self.live_browser_title, self.live_browser_url
 
 
 class FakeSacrificialBrowserController:
@@ -269,3 +302,35 @@ def test_controller_requires_confirmation_for_close_tab_in_isolated_mode(tmp_pat
     assert first.confirmation_required is True
     assert "confirm" in first.response_text.lower()
     assert second.response_text == "Current browser tab band kar diya."
+
+
+def test_controller_requires_confirmation_for_instagram_login(tmp_path: Path) -> None:
+    fake_sacrificial = FakeSacrificialBrowserController()
+    controller = _build_controller(
+        tmp_path,
+        browser_command_mode="isolated",
+        sacrificial_controller=fake_sacrificial,
+    )
+
+    first = controller.handle_text_command("Instagram login page kholo")
+    second = controller.handle_text_command("haan")
+
+    assert first.confirmation_required is True
+    assert "confirm" in first.response_text.lower()
+    assert second.response_text == "Instagram login page khol diya."
+
+
+def test_controller_requires_confirmation_for_whatsapp_web(tmp_path: Path) -> None:
+    fake_sacrificial = FakeSacrificialBrowserController()
+    controller = _build_controller(
+        tmp_path,
+        browser_command_mode="isolated",
+        sacrificial_controller=fake_sacrificial,
+    )
+
+    first = controller.handle_text_command("WhatsApp Web kholo")
+    second = controller.handle_text_command("haan")
+
+    assert first.confirmation_required is True
+    assert "confirm" in first.response_text.lower()
+    assert second.response_text == "WhatsApp Web khol diya."
