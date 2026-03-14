@@ -1,0 +1,3 @@
+Alembic migration scaffold for Ava.
+
+Phase 1 initializes the local schema via SQLAlchemy metadata bootstrap. Future schema changes should move through explicit Alembic revisions.

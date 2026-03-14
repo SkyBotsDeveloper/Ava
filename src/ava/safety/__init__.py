@@ -1,0 +1,1 @@
+"""Confirmation and safety policy."""

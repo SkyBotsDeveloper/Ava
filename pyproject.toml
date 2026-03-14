@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ava-desktop-agent"
+version = "0.1.0"
+description = "Windows-only voice-first AI desktop agent"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+license = { text = "MIT" }
+authors = [
+  { name = "Codex" }
+]
+dependencies = [
+  "PySide6>=6.8,<7",
+  "SQLAlchemy>=2.0,<3",
+  "alembic>=1.16,<2",
+  "pydantic>=2.8,<3",
+  "pydantic-settings>=2.5,<3",
+  "platformdirs>=4.3,<5",
+  "python-dotenv>=1.0,<2",
+  "psutil>=6.1,<7"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<9",
+  "pytest-cov>=6,<7",
+  "ruff>=0.12,<0.13",
+  "pre-commit>=4,<5"
+]
+voice = [
+  "google-genai>=1.67,<2",
+  "openwakeword>=0.6,<0.7",
+  "sounddevice>=0.5,<0.6",
+  "webrtcvad>=2.0.10,<3"
+]
+automation = [
+  "pywinauto>=0.6.9,<0.7",
+  "playwright>=1.58,<2",
+  "pywin32>=308,<309"
+]
+
+[project.scripts]
+ava = "ava.main:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E",
+  "F",
+  "I",
+  "B",
+  "UP",
+  "RUF"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
