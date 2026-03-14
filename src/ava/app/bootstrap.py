@@ -23,6 +23,7 @@ class BootstrapContext:
     paths: AppPaths
     state: AssistantState
     controller: AvaController
+    journal: ActionJournalStore
 
 
 def bootstrap_application(env_file: str | Path | None = ".env") -> BootstrapContext:
@@ -38,12 +39,19 @@ def bootstrap_application(env_file: str | Path | None = ".env") -> BootstrapCont
     session_factory = build_session_factory(engine)
 
     state = AssistantState(observation_enabled=settings.observation_enabled)
+    journal = ActionJournalStore(session_factory)
     controller = AvaController(
         settings=settings,
         state=state,
         intent_router=IntentRouter(),
         safety_policy=SafetyPolicy(),
-        journal=ActionJournalStore(session_factory),
+        journal=journal,
         browser_controller=BrowserController(settings),
     )
-    return BootstrapContext(settings=settings, paths=paths, state=state, controller=controller)
+    return BootstrapContext(
+        settings=settings,
+        paths=paths,
+        state=state,
+        controller=controller,
+        journal=journal,
+    )

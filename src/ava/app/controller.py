@@ -37,7 +37,8 @@ class AvaController:
     def handle_text_command(self, raw_text: str) -> CommandResult:
         cleaned = raw_text.strip()
         if not cleaned:
-            return CommandResult("Command khaali hai.")
+            self.state.last_response = "Command khaali hai."
+            return CommandResult(self.state.last_response)
 
         self.state.last_command = cleaned
         intent = self.intent_router.parse(cleaned)

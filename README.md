@@ -4,13 +4,14 @@ Ava is a Windows-only, voice-first AI desktop agent with a premium orb UI, local
 
 ## Current status
 
-Phase 1 foundation is in place:
+Phase 2 shell is in place:
 
 - Python project scaffold with tooling, linting, tests, and pre-commit hooks
 - Config loading via `.env`
 - Structured logging and runtime path bootstrap
 - SQLite-backed action journal and memory schema bootstrap
-- Phase 2-ready PySide6/QML app shell with text command fallback
+- Live-verified PySide6/QML orb shell with a compact collapsed default
+- Expandable control drawer with text fallback, mute, cancel, and recent activity history
 - Intent routing, browser strategy defaults, and safety policy scaffolding
 
 ## Product defaults locked in this repo
@@ -43,6 +44,8 @@ pytest
 ```powershell
 python -m ava.main
 ```
+
+The shell launches as a compact orb by default. Use `Open` or double-click the orb area to expand the drawer.
 
 ## Repo layout
 
