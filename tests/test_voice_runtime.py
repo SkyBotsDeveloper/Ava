@@ -47,9 +47,10 @@ class FakeLiveClient:
 @dataclass(slots=True)
 class FakeAudioGateway:
     played_chunks: list[tuple[bytes, int]]
+    started: bool = False
 
     async def start_input(self) -> None:
-        return None
+        self.started = True
 
     async def stop_input(self) -> None:
         return None
@@ -129,3 +130,31 @@ def test_voice_runtime_submit_text_updates_state_and_journal(tmp_path) -> None:
     rows = journal.list_recent()
     assert rows[0].action_name == "live_text_turn"
     assert rows[0].result_status == "planned"
+
+
+def test_voice_runtime_manual_capture_starts_without_wake_model(tmp_path) -> None:
+    settings = Settings(_env_file=None, gemini_api_key="test-key")
+    state = AssistantState()
+    journal = _build_journal(tmp_path)
+    live_client = FakeLiveClient()
+    audio_gateway = FakeAudioGateway(played_chunks=[])
+    runtime = VoiceRuntime(
+        settings=settings,
+        state=state,
+        journal=journal,
+        live_client=live_client,
+        audio_gateway=audio_gateway,
+    )
+
+    async def scenario() -> None:
+        await runtime.begin_manual_capture()
+        await runtime.end_manual_capture()
+
+    asyncio.run(scenario())
+
+    assert runtime.availability.manual_voice_ready is True
+    assert runtime.availability.wake_ready is False
+    assert audio_gateway.started is True
+    assert state.status is AssistantStatus.THINKING
+    rows = journal.list_recent()
+    assert rows[0].action_name == "manual_voice_trigger"

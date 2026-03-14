@@ -44,22 +44,24 @@ class GeminiLiveSessionClient(LiveSessionClient):
             api_key=self._api_key,
             http_options={"api_version": self._api_version},
         )
+        is_native_audio_model = "native-audio" in config.model_name
+        speech_config = types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=config.voice_name)
+            ),
+        )
+        if not is_native_audio_model:
+            speech_config.language_code = config.locale
+
         live_config = types.LiveConnectConfig(
             response_modalities=[modality.value for modality in config.response_modalities],
             system_instruction=config.system_instruction,
-            speech_config=types.SpeechConfig(
-                language_code=config.locale,
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=config.voice_name)
-                ),
-            ),
+            speech_config=speech_config,
             thinking_config=types.ThinkingConfig(thinking_budget=config.thinking_budget),
-            input_audio_transcription=types.AudioTranscriptionConfig(language_codes=[config.locale])
+            input_audio_transcription=types.AudioTranscriptionConfig()
             if config.enable_input_transcription
             else None,
-            output_audio_transcription=types.AudioTranscriptionConfig(
-                language_codes=[config.locale]
-            )
+            output_audio_transcription=types.AudioTranscriptionConfig()
             if config.enable_output_transcription
             else None,
             realtime_input_config=types.RealtimeInputConfig(

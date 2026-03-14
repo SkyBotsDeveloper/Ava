@@ -100,6 +100,19 @@ class UiBridge(QObject):
         self.history_model.refresh()
         self.app_state.sync()
 
+    @Slot()
+    def toggleManualListening(self) -> None:
+        if self.voice_service is None:
+            self.controller.state.last_response = "Manual voice runtime abhi available nahi hai."
+            self.controller.state.status = AssistantStatus.IDLE
+            self.app_state.sync()
+            return
+
+        self._thinking_timer.stop()
+        self._idle_timer.stop()
+        self._pending_command = None
+        self.voice_service.toggle_manual_capture()
+
     @Slot(bool)
     def commandInputFocusChanged(self, active: bool) -> None:
         self._command_focused = active

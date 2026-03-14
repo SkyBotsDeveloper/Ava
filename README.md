@@ -15,7 +15,7 @@ Phase 3 is now started on top of the frozen shell:
 - Expandable control drawer with text fallback, mute, cancel, and recent activity history
 - Intent routing, browser strategy defaults, and safety policy scaffolding
 - Gemini Live client adapter and Hinglish system prompt
-- Async voice runtime scaffolding for Gemini text turns, audio playback, wake-word monitoring, and state transitions
+- Async voice runtime for Gemini text turns, manual voice trigger, audio playback, wake-word monitoring, and state transitions
 
 ## Product defaults locked in this repo
 
@@ -37,7 +37,7 @@ python -m pip install -e ".[dev,voice]"
 
 4. Copy `.env.example` to `.env`.
 5. Add your Gemini API key to `AVA_GEMINI_API_KEY`.
-6. Add one or more local wake-word model paths to `AVA_WAKEWORD_MODEL_PATHS` when you are ready to test always-on wake.
+6. Add one or more local wake-word model paths to `AVA_WAKEWORD_MODEL_PATHS` only when you are ready to test always-on wake.
 7. Run tests:
 
 ```powershell
@@ -83,6 +83,5 @@ tests/               Unit tests and integration scaffolding
 
 ## Phase 3 blockers
 
-- Gemini Live turns are blocked until `AVA_GEMINI_API_KEY` is set.
 - Always-on wake testing is blocked until `AVA_WAKEWORD_MODEL_PATHS` points to a real local openWakeWord model file.
-- Global push-to-talk hotkey wiring is still pending behind the Phase 3 runtime groundwork.
+- The current `Ctrl+Alt+A` manual trigger path is app-focused, not a system-wide global hotkey yet.

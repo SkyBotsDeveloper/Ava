@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 class VoiceRuntimeAvailability:
     live_text_ready: bool
     audio_ready: bool
+    manual_voice_ready: bool
     wake_ready: bool
     blockers: tuple[str, ...]
 
@@ -75,10 +76,13 @@ class VoiceRuntime:
         self._on_journal_changed = on_journal_changed
         self._availability = self.inspect_availability(settings)
         self._receive_task: asyncio.Task[None] | None = None
-        self._wake_task: asyncio.Task[None] | None = None
+        self._input_task: asyncio.Task[None] | None = None
+        self._audio_started = False
         self._capture_active = False
         self._speech_detected = False
         self._silence_ms = 0
+        self._input_transcript = ""
+        self._output_transcript = ""
         self._vad = VoiceActivityDetector()
 
     @property
@@ -99,6 +103,7 @@ class VoiceRuntime:
         if not audio_ready:
             blockers.append("Audio pipeline needs `sounddevice` and `numpy`.")
 
+        manual_voice_ready = bool(live_text_ready and audio_ready)
         wake_ready = bool(audio_ready and Model is not None and settings.wakeword_model_paths)
         if Model is None:
             blockers.append("Wake-word detection needs `openwakeword`.")
@@ -108,6 +113,7 @@ class VoiceRuntime:
         return VoiceRuntimeAvailability(
             live_text_ready=live_text_ready,
             audio_ready=audio_ready,
+            manual_voice_ready=manual_voice_ready,
             wake_ready=wake_ready,
             blockers=tuple(dict.fromkeys(blockers)),
         )
@@ -130,33 +136,28 @@ class VoiceRuntime:
         )
 
     async def start(self) -> None:
-        if (
-            not self._availability.wake_ready
-            or self._audio_gateway is None
-            or self._wake_word_engine is None
-        ):
+        if not self._availability.wake_ready:
             return
-        await self._audio_gateway.start_input()
-        await self._wake_word_engine.start()
-        self._wake_task = asyncio.create_task(self._wake_loop(), name="ava-wake-loop")
+        await self._ensure_audio_input()
 
     async def stop(self) -> None:
         self._capture_active = False
-        if self._wake_task is not None:
-            self._wake_task.cancel()
+        if self._input_task is not None:
+            self._input_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await self._wake_task
-            self._wake_task = None
+                await self._input_task
+            self._input_task = None
         if self._receive_task is not None:
             self._receive_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._receive_task
             self._receive_task = None
-        if self._wake_word_engine is not None:
+        if self._audio_started and self._wake_word_engine is not None:
             await self._wake_word_engine.stop()
-        if self._audio_gateway is not None:
+        if self._audio_started and self._audio_gateway is not None:
             await self._audio_gateway.stop_input()
             await self._audio_gateway.interrupt_output()
+            self._audio_started = False
         await self._disconnect_live()
 
     async def submit_text(self, text: str) -> None:
@@ -167,6 +168,7 @@ class VoiceRuntime:
         self._state.last_command = cleaned
         self._state.status = AssistantStatus.THINKING
         self._state.last_response = "Soch rahi hoon."
+        self._output_transcript = ""
         self._notify_state()
 
         if not self._availability.live_text_ready:
@@ -221,17 +223,78 @@ class VoiceRuntime:
         if self._audio_gateway is not None:
             await self._audio_gateway.interrupt_output()
         await self._disconnect_live()
+        self._state.last_response = "Theek hai, cancel kar diya."
         self._state.status = AssistantStatus.IDLE
         self._notify_state()
 
-    async def _wake_loop(self) -> None:
-        if self._audio_gateway is None or self._wake_word_engine is None:
+    async def begin_manual_capture(self) -> None:
+        if self._capture_active:
+            return
+        if not self._availability.manual_voice_ready:
+            self._state.last_response = "Manual voice abhi ready nahi hai."
+            self._state.status = AssistantStatus.IDLE
+            self._notify_state()
+            return
+
+        await self._ensure_audio_input()
+        await self._ensure_live_session()
+        self._ensure_receive_task()
+        await self._live_client.send_activity_start()
+
+        self._capture_active = True
+        self._speech_detected = False
+        self._silence_ms = 0
+        self._input_transcript = ""
+        self._output_transcript = ""
+        self._state.status = AssistantStatus.LISTENING
+        self._state.last_response = "Haan, boliye."
+        self._record_action(
+            command_text="manual_trigger",
+            action_name="manual_voice_trigger",
+            result_status=ResultStatus.PLANNED,
+            details={"hotkey": self._settings.push_to_talk_hotkey},
+        )
+        self._notify_state()
+
+    async def end_manual_capture(self) -> None:
+        if not self._capture_active:
+            return
+        await self._live_client.send_activity_end()
+        self._capture_active = False
+        self._speech_detected = False
+        self._silence_ms = 0
+        self._state.status = AssistantStatus.THINKING
+        self._notify_state()
+
+    async def toggle_manual_capture(self) -> None:
+        if self._capture_active:
+            await self.end_manual_capture()
+        else:
+            await self.begin_manual_capture()
+
+    async def _ensure_audio_input(self) -> None:
+        if self._audio_gateway is None:
+            raise RuntimeError("Audio gateway is not available.")
+        if self._audio_started and self._input_task is not None and not self._input_task.done():
+            return
+
+        await self._audio_gateway.start_input()
+        self._audio_started = True
+        if self._availability.wake_ready and self._wake_word_engine is not None:
+            await self._wake_word_engine.start()
+        self._input_task = asyncio.create_task(self._input_loop(), name="ava-audio-input")
+
+    async def _input_loop(self) -> None:
+        if self._audio_gateway is None:
             return
 
         async for chunk in self._audio_gateway.input_chunks():
             try:
                 if self._capture_active:
                     await self._forward_voice_chunk(chunk.data, chunk.sample_rate_hz)
+                    continue
+
+                if not self._availability.wake_ready or self._wake_word_engine is None:
                     continue
 
                 event = await self._wake_word_engine.process_chunk(chunk)
@@ -259,7 +322,7 @@ class VoiceRuntime:
             except asyncio.CancelledError:
                 raise
             except Exception:  # pragma: no cover - device / live runtime dependent
-                logger.exception("Wake loop failed")
+                logger.exception("Audio input loop failed")
                 self._state.status = AssistantStatus.IDLE
                 self._state.last_response = "Voice pipeline me issue aa gaya."
                 self._notify_state()
@@ -326,10 +389,15 @@ class VoiceRuntime:
     def _apply_transcript(self, event: TranscriptEvent) -> None:
         if event.is_input:
             if event.text:
-                self._state.last_command = event.text
+                self._input_transcript = self._merge_transcript(self._input_transcript, event.text)
+                self._state.last_command = self._input_transcript
         else:
             if event.text:
-                self._state.last_response = event.text
+                self._output_transcript = self._merge_transcript(
+                    self._output_transcript,
+                    event.text,
+                )
+                self._state.last_response = self._output_transcript
                 self._state.status = AssistantStatus.SPEAKING
         self._notify_state()
 
@@ -346,6 +414,8 @@ class VoiceRuntime:
     def _apply_turn_boundary(self, event: TurnBoundaryEvent) -> None:
         if event.phase in {"generation_complete", "turn_complete", "waiting_for_input"}:
             self._state.status = AssistantStatus.IDLE
+            self._input_transcript = ""
+            self._output_transcript = ""
             self._notify_state()
         elif event.phase == "interrupted":
             self._state.status = AssistantStatus.THINKING
@@ -390,3 +460,19 @@ class VoiceRuntime:
             return int(mime_type.split("rate=", maxsplit=1)[1])
         except ValueError:
             return default_rate
+
+    @staticmethod
+    def _merge_transcript(current: str, incoming: str) -> str:
+        chunk = incoming.strip()
+        if not chunk:
+            return current
+        if not current:
+            return chunk
+        if chunk.startswith(current):
+            return chunk
+        if current.startswith(chunk) or chunk in current:
+            return current
+        separator = (
+            "" if current.endswith((" ", "\n")) or chunk.startswith((".", ",", "!", "?")) else " "
+        )
+        return f"{current}{separator}{chunk}"

@@ -18,3 +18,12 @@ def test_app_paths_use_custom_root(tmp_path) -> None:
     assert paths.root == tmp_path
     assert paths.logs_dir.exists()
     assert paths.database_path.parent.exists()
+
+
+def test_empty_wakeword_env_value_loads_as_empty_tuple(tmp_path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("AVA_WAKEWORD_MODEL_PATHS=\n", encoding="utf-8")
+
+    settings = Settings(_env_file=env_file)
+
+    assert settings.wakeword_model_paths == ()

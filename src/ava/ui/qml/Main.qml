@@ -85,6 +85,21 @@ Window {
         root.shellMode = root.shellMode === "full" ? "compact" : "full"
     }
 
+    Shortcut {
+        sequence: appState.pushToTalkHotkey
+        onActivated: uiBridge.toggleManualListening()
+    }
+
+    Shortcut {
+        sequence: appState.muteHotkey
+        onActivated: uiBridge.toggleMute()
+    }
+
+    Shortcut {
+        sequence: appState.emergencyStopHotkey
+        onActivated: uiBridge.emergencyStop()
+    }
+
     NumberAnimation on ambientPhase {
         from: 0
         to: Math.PI * 2
@@ -589,7 +604,7 @@ Window {
                                 ControlButton {
                                     text: appState.muted ? "Unmute" : "Mute"
                                     tone: "neutral"
-                                onClicked: uiBridge.toggleMute()
+                                    onClicked: uiBridge.toggleMute()
                                 }
 
                                 ControlButton {
@@ -704,7 +719,9 @@ Window {
                         Text {
                             Layout.fillWidth: true
                             visible: !root.fullPanel
-                            text: "Voice first. Text is here when voice is unavailable."
+                            text: appState.manualVoiceReady
+                                ? "Press " + appState.pushToTalkHotkey + " to talk. Text is fallback."
+                                : "Voice first. Add Gemini key to enable talking. Text is fallback."
                             color: "#55697f"
                             font.family: "Segoe UI Variable"
                             font.pixelSize: 9

@@ -13,6 +13,7 @@ class QtAssistantState(QObject):
     lastResponseChanged = Signal()
 
     hotkeysChanged = Signal()
+    voiceAvailabilityChanged = Signal()
 
     def __init__(self, state: AssistantState, settings: Settings) -> None:
         super().__init__()
@@ -47,9 +48,18 @@ class QtAssistantState(QObject):
     def emergencyStopHotkey(self) -> str:
         return self._settings.emergency_stop_hotkey
 
+    @Property(bool, notify=voiceAvailabilityChanged)
+    def manualVoiceReady(self) -> bool:
+        return bool(self._settings.gemini_api_key)
+
+    @Property(bool, notify=voiceAvailabilityChanged)
+    def wakeVoiceReady(self) -> bool:
+        return bool(self._settings.gemini_api_key and self._settings.wakeword_model_paths)
+
     def sync(self) -> None:
         self.statusChanged.emit()
         self.mutedChanged.emit()
         self.lastCommandChanged.emit()
         self.lastResponseChanged.emit()
         self.hotkeysChanged.emit()
+        self.voiceAvailabilityChanged.emit()

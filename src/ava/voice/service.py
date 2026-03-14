@@ -51,6 +51,10 @@ class VoiceRuntimeService:
     def wake_ready(self) -> bool:
         return self._availability.wake_ready
 
+    @property
+    def manual_voice_ready(self) -> bool:
+        return self._availability.manual_voice_ready
+
     def start(self) -> None:
         if self._thread is not None:
             return
@@ -99,6 +103,11 @@ class VoiceRuntimeService:
         if self._runtime is None:
             return
         self._submit(self._runtime.cancel())
+
+    def toggle_manual_capture(self) -> None:
+        if self._runtime is None:
+            return
+        self._submit(self._runtime.toggle_manual_capture())
 
     def _run_loop(self) -> None:
         loop = asyncio.new_event_loop()
