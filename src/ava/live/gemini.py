@@ -89,6 +89,14 @@ class GeminiLiveSessionClient(LiveSessionClient):
 
     async def send_text(self, text: str, *, end_of_turn: bool = True) -> None:
         session = self._require_session()
+        logger.info(
+            "Sending text turn to Gemini Live",
+            extra={
+                "event": "live_text_sent",
+                "end_of_turn": end_of_turn,
+                "text_preview": text[:120],
+            },
+        )
         await session.send(input=text, end_of_turn=end_of_turn)
 
     async def send_audio_chunk(self, pcm_bytes: bytes, *, mime_type: str) -> None:
@@ -135,6 +143,13 @@ class GeminiLiveSessionClient(LiveSessionClient):
         if server_content is None:
             return events
 
+        model_turn = getattr(server_content, "model_turn", None)
+        if model_turn is not None and getattr(model_turn, "parts", None):
+            logger.info(
+                "Gemini Live returned model output",
+                extra={"event": "live_model_output_received"},
+            )
+
         if getattr(server_content, "input_transcription", None) is not None:
             transcription = server_content.input_transcription
             if transcription.text:
@@ -157,7 +172,6 @@ class GeminiLiveSessionClient(LiveSessionClient):
                     )
                 )
 
-        model_turn = getattr(server_content, "model_turn", None)
         if model_turn is not None:
             for part in model_turn.parts or []:
                 if getattr(part, "text", None):

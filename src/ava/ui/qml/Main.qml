@@ -85,21 +85,6 @@ Window {
         root.shellMode = root.shellMode === "full" ? "compact" : "full"
     }
 
-    Shortcut {
-        sequence: appState.pushToTalkHotkey
-        onActivated: uiBridge.toggleManualListening()
-    }
-
-    Shortcut {
-        sequence: appState.muteHotkey
-        onActivated: uiBridge.toggleMute()
-    }
-
-    Shortcut {
-        sequence: appState.emergencyStopHotkey
-        onActivated: uiBridge.emergencyStop()
-    }
-
     NumberAnimation on ambientPhase {
         from: 0
         to: Math.PI * 2

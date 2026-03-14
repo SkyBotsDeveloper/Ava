@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     gemini_live_locale: str = "en-IN"
     gemini_live_voice_name: str = "Kore"
-    gemini_live_enable_server_vad: bool = True
+    gemini_live_enable_server_vad: bool = False
     gemini_live_vad_prefix_padding_ms: int = Field(default=180, ge=0, le=3000)
     gemini_live_vad_silence_ms: int = Field(default=700, ge=100, le=5000)
     gemini_live_enable_input_transcription: bool = True

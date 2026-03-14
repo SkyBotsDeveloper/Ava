@@ -83,6 +83,9 @@ class VoiceRuntime:
         self._silence_ms = 0
         self._input_transcript = ""
         self._output_transcript = ""
+        self._audio_frame_count = 0
+        self._audio_byte_count = 0
+        self._output_audio_chunk_count = 0
         self._vad = VoiceActivityDetector()
 
     @property
@@ -129,7 +132,8 @@ class VoiceRuntime:
             output_sample_rate_hz=self._settings.voice_output_sample_rate_hz,
             enable_input_transcription=self._settings.gemini_live_enable_input_transcription,
             enable_output_transcription=self._settings.gemini_live_enable_output_transcription,
-            enable_server_vad=self._settings.gemini_live_enable_server_vad,
+            # Ava currently drives explicit start/end boundaries for manual trigger and wake flows.
+            enable_server_vad=False,
             vad_prefix_padding_ms=self._settings.gemini_live_vad_prefix_padding_ms,
             vad_silence_ms=self._settings.gemini_live_vad_silence_ms,
             thinking_budget=self._settings.gemini_live_thinking_budget,
@@ -165,10 +169,18 @@ class VoiceRuntime:
         if not cleaned:
             return
 
+        self._reset_turn_metrics()
         self._state.last_command = cleaned
         self._state.status = AssistantStatus.THINKING
         self._state.last_response = "Soch rahi hoon."
         self._output_transcript = ""
+        logger.info(
+            "Manual text fallback submitted",
+            extra={
+                "event": "manual_text_submitted",
+                "text_preview": cleaned[:120],
+            },
+        )
         self._notify_state()
 
         if not self._availability.live_text_ready:
@@ -207,6 +219,10 @@ class VoiceRuntime:
 
     async def set_muted(self, muted: bool) -> None:
         self._state.muted = muted
+        logger.info(
+            "Voice runtime mute changed",
+            extra={"event": "voice_mute_changed", "muted": muted},
+        )
         if self._audio_gateway is None:
             self._notify_state()
             return
@@ -225,6 +241,15 @@ class VoiceRuntime:
         await self._disconnect_live()
         self._state.last_response = "Theek hai, cancel kar diya."
         self._state.status = AssistantStatus.IDLE
+        logger.info(
+            "Voice runtime canceled",
+            extra={
+                "event": "voice_runtime_canceled",
+                "audio_frames_sent": self._audio_frame_count,
+                "audio_bytes_sent": self._audio_byte_count,
+                "output_audio_chunks": self._output_audio_chunk_count,
+            },
+        )
         self._notify_state()
 
     async def begin_manual_capture(self) -> None:
@@ -236,6 +261,7 @@ class VoiceRuntime:
             self._notify_state()
             return
 
+        self._reset_turn_metrics()
         await self._ensure_audio_input()
         await self._ensure_live_session()
         self._ensure_receive_task()
@@ -254,6 +280,13 @@ class VoiceRuntime:
             result_status=ResultStatus.PLANNED,
             details={"hotkey": self._settings.push_to_talk_hotkey},
         )
+        logger.info(
+            "Manual voice trigger started",
+            extra={
+                "event": "manual_trigger_started",
+                "hotkey": self._settings.push_to_talk_hotkey,
+            },
+        )
         self._notify_state()
 
     async def end_manual_capture(self) -> None:
@@ -264,6 +297,14 @@ class VoiceRuntime:
         self._speech_detected = False
         self._silence_ms = 0
         self._state.status = AssistantStatus.THINKING
+        logger.info(
+            "Manual voice trigger stopped",
+            extra={
+                "event": "manual_trigger_stopped",
+                "audio_frames_sent": self._audio_frame_count,
+                "audio_bytes_sent": self._audio_byte_count,
+            },
+        )
         self._notify_state()
 
     async def toggle_manual_capture(self) -> None:
@@ -328,6 +369,18 @@ class VoiceRuntime:
                 self._notify_state()
 
     async def _forward_voice_chunk(self, pcm_bytes: bytes, sample_rate_hz: int) -> None:
+        self._audio_frame_count += 1
+        self._audio_byte_count += len(pcm_bytes)
+        if self._audio_frame_count == 1 or self._audio_frame_count % 25 == 0:
+            logger.info(
+                "Audio frames streamed to Gemini Live",
+                extra={
+                    "event": "audio_frames_streamed",
+                    "audio_frames_sent": self._audio_frame_count,
+                    "audio_bytes_sent": self._audio_byte_count,
+                    "sample_rate_hz": sample_rate_hz,
+                },
+            )
         await self._live_client.send_audio_chunk(
             pcm_bytes,
             mime_type=f"audio/pcm;rate={sample_rate_hz}",
@@ -391,6 +444,14 @@ class VoiceRuntime:
             if event.text:
                 self._input_transcript = self._merge_transcript(self._input_transcript, event.text)
                 self._state.last_command = self._input_transcript
+                logger.info(
+                    "Input transcript received",
+                    extra={
+                        "event": "input_transcript_received",
+                        "is_final": event.is_final,
+                        "transcript": self._input_transcript,
+                    },
+                )
         else:
             if event.text:
                 self._output_transcript = self._merge_transcript(
@@ -399,10 +460,28 @@ class VoiceRuntime:
                 )
                 self._state.last_response = self._output_transcript
                 self._state.status = AssistantStatus.SPEAKING
+                logger.info(
+                    "Model response transcript received",
+                    extra={
+                        "event": "model_transcript_received",
+                        "is_final": event.is_final,
+                        "transcript": self._output_transcript,
+                    },
+                )
         self._notify_state()
 
     async def _apply_audio(self, event: AudioChunkEvent) -> None:
         self._state.status = AssistantStatus.SPEAKING
+        self._output_audio_chunk_count += 1
+        logger.info(
+            "Model audio chunk received",
+            extra={
+                "event": "model_audio_received",
+                "output_audio_chunks": self._output_audio_chunk_count,
+                "mime_type": event.mime_type,
+                "byte_count": len(event.data),
+            },
+        )
         self._notify_state()
         if self._audio_gateway is None or self._state.muted:
             return
@@ -412,6 +491,14 @@ class VoiceRuntime:
         )
 
     def _apply_turn_boundary(self, event: TurnBoundaryEvent) -> None:
+        logger.info(
+            "Gemini Live turn boundary received",
+            extra={
+                "event": "turn_boundary_received",
+                "phase": event.phase,
+                "reason": event.reason,
+            },
+        )
         if event.phase in {"generation_complete", "turn_complete", "waiting_for_input"}:
             self._state.status = AssistantStatus.IDLE
             self._input_transcript = ""
@@ -423,6 +510,10 @@ class VoiceRuntime:
 
     def _apply_voice_activity(self, event: VoiceActivityEvent) -> None:
         normalized = event.phase.lower()
+        logger.info(
+            "Voice activity event received",
+            extra={"event": "voice_activity_received", "phase": normalized},
+        )
         if "start" in normalized:
             self._state.status = AssistantStatus.LISTENING
         elif "end" in normalized:
@@ -451,6 +542,11 @@ class VoiceRuntime:
     def _notify_state(self) -> None:
         if self._on_state_changed is not None:
             self._on_state_changed()
+
+    def _reset_turn_metrics(self) -> None:
+        self._audio_frame_count = 0
+        self._audio_byte_count = 0
+        self._output_audio_chunk_count = 0
 
     def _extract_sample_rate(self, mime_type: str) -> int:
         default_rate = self._settings.voice_output_sample_rate_hz

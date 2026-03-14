@@ -17,3 +17,4 @@ dist/
 *.pyd
 *.log
 *.sqlite3
+*.db
