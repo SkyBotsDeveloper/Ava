@@ -7,7 +7,12 @@ from pathlib import Path
 
 from ava.app.state import AssistantState, AssistantStatus
 from ava.config.settings import Settings
-from ava.live.interfaces import LiveSessionConfig, TranscriptEvent, TurnBoundaryEvent
+from ava.live.interfaces import (
+    AudioChunkEvent,
+    LiveSessionConfig,
+    TranscriptEvent,
+    TurnBoundaryEvent,
+)
 from ava.memory.bootstrap import initialize_database
 from ava.memory.database import build_engine, build_session_factory
 from ava.memory.journal import ActionJournalStore
@@ -48,6 +53,7 @@ class FakeLiveClient:
 class FakeAudioGateway:
     played_chunks: list[tuple[bytes, int]]
     started: bool = False
+    flushed: bool = False
 
     async def start_input(self) -> None:
         self.started = True
@@ -61,6 +67,9 @@ class FakeAudioGateway:
 
     async def play_output_chunk(self, data: bytes, *, sample_rate_hz: int) -> None:
         self.played_chunks.append((data, sample_rate_hz))
+
+    async def flush_output(self) -> None:
+        self.flushed = True
 
     async def mute(self) -> None:
         return None
@@ -127,6 +136,7 @@ def test_voice_runtime_submit_text_updates_state_and_journal(tmp_path) -> None:
     assert live_client.sent_text == ["Kal 4 baje yaad dila dena"]
     assert state.last_response == "Kal 4 baje remind kar dungi."
     assert state.status is AssistantStatus.IDLE
+    assert audio_gateway.flushed is False
     rows = journal.list_recent()
     assert rows[0].action_name == "live_text_turn"
     assert rows[0].result_status == "planned"
@@ -158,3 +168,36 @@ def test_voice_runtime_manual_capture_starts_without_wake_model(tmp_path) -> Non
     assert state.status is AssistantStatus.THINKING
     rows = journal.list_recent()
     assert rows[0].action_name == "manual_voice_trigger"
+
+
+def test_voice_runtime_flushes_audio_on_turn_complete(tmp_path) -> None:
+    settings = Settings(_env_file=None, gemini_api_key="test-key")
+    state = AssistantState()
+    journal = _build_journal(tmp_path)
+    live_client = FakeLiveClient()
+    audio_gateway = FakeAudioGateway(played_chunks=[])
+    runtime = VoiceRuntime(
+        settings=settings,
+        state=state,
+        journal=journal,
+        live_client=live_client,
+        audio_gateway=audio_gateway,
+    )
+
+    async def scenario() -> None:
+        await runtime._apply_audio(
+            AudioChunkEvent(data=b"\x00\x00", mime_type="audio/pcm;rate=24000")
+        )
+        assert state.status is AssistantStatus.SPEAKING
+        assert audio_gateway.flushed is False
+        await runtime._apply_turn_boundary(
+            TurnBoundaryEvent(phase="generation_complete", reason="generation_done")
+        )
+        assert state.status is AssistantStatus.SPEAKING
+        assert audio_gateway.flushed is False
+        await runtime._apply_turn_boundary(TurnBoundaryEvent(phase="turn_complete", reason="stop"))
+
+    asyncio.run(scenario())
+
+    assert audio_gateway.flushed is True
+    assert state.status is AssistantStatus.IDLE

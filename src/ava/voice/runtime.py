@@ -87,6 +87,7 @@ class VoiceRuntime:
         self._audio_byte_count = 0
         self._output_audio_chunk_count = 0
         self._vad = VoiceActivityDetector()
+        self._generation_complete_received = False
 
     @property
     def availability(self) -> VoiceRuntimeAvailability:
@@ -174,6 +175,7 @@ class VoiceRuntime:
         self._state.status = AssistantStatus.THINKING
         self._state.last_response = "Soch rahi hoon."
         self._output_transcript = ""
+        self._generation_complete_received = False
         logger.info(
             "Manual text fallback submitted",
             extra={
@@ -238,6 +240,11 @@ class VoiceRuntime:
         self._silence_ms = 0
         if self._audio_gateway is not None:
             await self._audio_gateway.interrupt_output()
+        if self._receive_task is not None:
+            self._receive_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._receive_task
+            self._receive_task = None
         await self._disconnect_live()
         self._state.last_response = "Theek hai, cancel kar diya."
         self._state.status = AssistantStatus.IDLE
@@ -272,6 +279,7 @@ class VoiceRuntime:
         self._silence_ms = 0
         self._input_transcript = ""
         self._output_transcript = ""
+        self._generation_complete_received = False
         self._state.status = AssistantStatus.LISTENING
         self._state.last_response = "Haan, boliye."
         self._record_action(
@@ -428,7 +436,7 @@ class VoiceRuntime:
                 elif isinstance(event, AudioChunkEvent):
                     await self._apply_audio(event)
                 elif isinstance(event, TurnBoundaryEvent):
-                    self._apply_turn_boundary(event)
+                    await self._apply_turn_boundary(event)
                 elif isinstance(event, VoiceActivityEvent):
                     self._apply_voice_activity(event)
         except asyncio.CancelledError:
@@ -490,7 +498,7 @@ class VoiceRuntime:
             sample_rate_hz=self._extract_sample_rate(event.mime_type),
         )
 
-    def _apply_turn_boundary(self, event: TurnBoundaryEvent) -> None:
+    async def _apply_turn_boundary(self, event: TurnBoundaryEvent) -> None:
         logger.info(
             "Gemini Live turn boundary received",
             extra={
@@ -499,12 +507,17 @@ class VoiceRuntime:
                 "reason": event.reason,
             },
         )
-        if event.phase in {"generation_complete", "turn_complete", "waiting_for_input"}:
-            self._state.status = AssistantStatus.IDLE
-            self._input_transcript = ""
-            self._output_transcript = ""
-            self._notify_state()
+        if event.phase == "generation_complete":
+            self._generation_complete_received = True
+            if self._state.status is not AssistantStatus.SPEAKING:
+                self._state.status = AssistantStatus.THINKING
+                self._notify_state()
+            return
+        if event.phase in {"turn_complete", "waiting_for_input"}:
+            await self._finish_model_turn()
         elif event.phase == "interrupted":
+            if self._audio_gateway is not None:
+                await self._audio_gateway.interrupt_output()
             self._state.status = AssistantStatus.THINKING
             self._notify_state()
 
@@ -547,6 +560,20 @@ class VoiceRuntime:
         self._audio_frame_count = 0
         self._audio_byte_count = 0
         self._output_audio_chunk_count = 0
+        self._generation_complete_received = False
+
+    async def _finish_model_turn(self) -> None:
+        if (
+            self._audio_gateway is not None
+            and self._output_audio_chunk_count > 0
+            and not self._state.muted
+        ):
+            await self._audio_gateway.flush_output()
+        self._state.status = AssistantStatus.IDLE
+        self._input_transcript = ""
+        self._output_transcript = ""
+        self._generation_complete_received = False
+        self._notify_state()
 
     def _extract_sample_rate(self, mime_type: str) -> int:
         default_rate = self._settings.voice_output_sample_rate_hz

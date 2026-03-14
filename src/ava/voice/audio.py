@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from datetime import UTC, datetime
-from functools import partial
 from typing import Final
 
 from ava.voice.interfaces import AudioChunk, AudioGateway
@@ -31,6 +31,13 @@ class SoundDeviceAudioGateway(AudioGateway):
         self._input_device_name: str | None = None
         self._output_device_name: str | None = None
         self._active_input_sample_rate_hz = input_sample_rate_hz
+        self._output_queue: asyncio.Queue[tuple[bytes, int]] = asyncio.Queue()
+        self._output_task: asyncio.Task[None] | None = None
+        self._output_stream = None
+        self._output_sample_rate_hz: int | None = None
+        self._queued_output_bytes = 0
+        self._queued_output_chunks = 0
+        self._output_turn_active = False
 
     async def start_input(self) -> None:
         if sd is None or np is None:
@@ -134,6 +141,8 @@ class SoundDeviceAudioGateway(AudioGateway):
         if sd is None or np is None:
             raise RuntimeError("sounddevice and numpy are required for audio playback.")
 
+        if self._loop is None:
+            self._loop = asyncio.get_running_loop()
         if self._output_device_name is None:
             output_device = await asyncio.to_thread(sd.query_devices, None, "output")
             self._output_device_name = str(output_device.get("name", "unknown"))
@@ -146,26 +155,46 @@ class SoundDeviceAudioGateway(AudioGateway):
                 },
             )
 
-        samples = np.frombuffer(data, dtype=np.int16)
-        logger.info(
-            "Speaker playback started",
-            extra={
-                "event": "playback_started",
-                "device_name": self._output_device_name,
-                "sample_rate_hz": sample_rate_hz,
-                "sample_count": int(samples.size),
-            },
-        )
-        await asyncio.to_thread(partial(sd.play, samples, samplerate=sample_rate_hz, blocking=True))
+        if self._output_task is None or self._output_task.done():
+            self._output_task = asyncio.create_task(
+                self._output_loop(),
+                name="ava-audio-output",
+            )
+        if not self._output_turn_active:
+            self._output_turn_active = True
+            self._queued_output_bytes = 0
+            self._queued_output_chunks = 0
+            logger.info(
+                "Speaker playback started",
+                extra={
+                    "event": "playback_started",
+                    "device_name": self._output_device_name,
+                    "sample_rate_hz": sample_rate_hz,
+                },
+            )
+        self._queued_output_bytes += len(data)
+        self._queued_output_chunks += 1
+        await self._output_queue.put((data, sample_rate_hz))
+
+    async def flush_output(self) -> None:
+        if self._output_task is None:
+            return
+        await self._output_queue.join()
+        if not self._output_turn_active:
+            return
         logger.info(
             "Speaker playback finished",
             extra={
                 "event": "playback_finished",
                 "device_name": self._output_device_name,
-                "sample_rate_hz": sample_rate_hz,
-                "sample_count": int(samples.size),
+                "sample_rate_hz": self._output_sample_rate_hz,
+                "byte_count": self._queued_output_bytes,
+                "chunk_count": self._queued_output_chunks,
             },
         )
+        self._output_turn_active = False
+        self._queued_output_bytes = 0
+        self._queued_output_chunks = 0
 
     async def mute(self) -> None:
         self._muted = True
@@ -180,4 +209,60 @@ class SoundDeviceAudioGateway(AudioGateway):
         if sd is None:
             return
         await asyncio.to_thread(sd.stop)
+        while not self._output_queue.empty():
+            try:
+                self._output_queue.get_nowait()
+                self._output_queue.task_done()
+            except asyncio.QueueEmpty:
+                break
+        if self._output_task is not None:
+            self._output_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._output_task
+            self._output_task = None
+        self._output_turn_active = False
+        self._queued_output_bytes = 0
+        self._queued_output_chunks = 0
         logger.info("Speaker playback interrupted", extra={"event": "playback_interrupted"})
+
+    async def _output_loop(self) -> None:
+        try:
+            while True:
+                data, sample_rate_hz = await self._output_queue.get()
+                try:
+                    await self._ensure_output_stream(sample_rate_hz)
+                    await asyncio.to_thread(self._output_stream.write, data)
+                finally:
+                    self._output_queue.task_done()
+        except asyncio.CancelledError:
+            raise
+        finally:
+            await self._close_output_stream()
+
+    async def _ensure_output_stream(self, sample_rate_hz: int) -> None:
+        if sd is None:
+            raise RuntimeError("sounddevice is required for audio playback.")
+        if self._output_stream is not None and self._output_sample_rate_hz == sample_rate_hz:
+            return
+        await self._close_output_stream()
+
+        def _create_stream():
+            stream = sd.RawOutputStream(
+                samplerate=sample_rate_hz,
+                channels=1,
+                dtype="int16",
+            )
+            stream.start()
+            return stream
+
+        self._output_stream = await asyncio.to_thread(_create_stream)
+        self._output_sample_rate_hz = sample_rate_hz
+
+    async def _close_output_stream(self) -> None:
+        if self._output_stream is None:
+            self._output_sample_rate_hz = None
+            return
+        await asyncio.to_thread(self._output_stream.stop)
+        await asyncio.to_thread(self._output_stream.close)
+        self._output_stream = None
+        self._output_sample_rate_hz = None

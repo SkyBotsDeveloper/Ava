@@ -102,6 +102,14 @@ def _build_app_shortcuts(
     return shortcuts
 
 
+def _dispatch_global_hotkey(hotkey_name: str, handler) -> None:
+    logger.info(
+        "Handling global hotkey action",
+        extra={"event": "global_hotkey_handler_invoked", "hotkey_name": hotkey_name},
+    )
+    handler()
+
+
 def run_ui(context: BootstrapContext) -> int:
     QQuickStyle.setStyle("Basic")
     QQuickStyle.setFallbackStyle("Basic")
@@ -135,14 +143,20 @@ def run_ui(context: BootstrapContext) -> int:
     root_window = engine.rootObjects()[0]
     global_hotkeys = GlobalHotkeyManager()
     app.installNativeEventFilter(global_hotkeys)
-    global_hotkeys.manualTriggerRequested.connect(bridge.toggleManualListening)
-    global_hotkeys.muteRequested.connect(bridge.toggleMute)
-    global_hotkeys.cancelRequested.connect(bridge.emergencyStop)
+    global_hotkeys.manualTriggerRequested.connect(
+        lambda: _dispatch_global_hotkey("push_to_talk", bridge.toggleManualListening)
+    )
+    global_hotkeys.muteRequested.connect(lambda: _dispatch_global_hotkey("mute", bridge.toggleMute))
+    global_hotkeys.cancelRequested.connect(
+        lambda: _dispatch_global_hotkey("cancel", bridge.emergencyStop)
+    )
     global_bindings = global_hotkeys.register_defaults(
+        window_handle=int(root_window.winId()),
         push_to_talk=context.settings.push_to_talk_hotkey,
         mute=context.settings.mute_hotkey,
         cancel=context.settings.emergency_stop_hotkey,
     )
+    bridge._global_hotkeys = global_hotkeys
     bridge._app_shortcuts = _build_app_shortcuts(
         root_window,
         bridge,

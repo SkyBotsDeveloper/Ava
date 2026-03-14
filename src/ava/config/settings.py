@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     )
 
     push_to_talk_hotkey: str = "ctrl+alt+a"
-    mute_hotkey: str = "ctrl+alt+m"
+    mute_hotkey: str = "ctrl+alt+x"
     emergency_stop_hotkey: str = "ctrl+alt+backspace"
     ui_auto_close_ms: int = Field(default=0, ge=0, le=60000)
 

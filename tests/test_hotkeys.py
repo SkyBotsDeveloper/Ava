@@ -15,3 +15,11 @@ def test_parse_hotkey_for_backspace_cancel() -> None:
     assert parsed.virtual_key == 0x08
     assert parsed.modifiers & 0x0001
     assert parsed.modifiers & 0x0002
+
+
+def test_parse_hotkey_for_mute_x() -> None:
+    parsed = parse_hotkey("ctrl+alt+x")
+
+    assert parsed.virtual_key == 0x58
+    assert parsed.modifiers & 0x0001
+    assert parsed.modifiers & 0x0002

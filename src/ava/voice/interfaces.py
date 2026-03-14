@@ -44,6 +44,9 @@ class AudioGateway(Protocol):
     async def play_output_chunk(self, data: bytes, *, sample_rate_hz: int) -> None:
         """Play a chunk of output audio."""
 
+    async def flush_output(self) -> None:
+        """Wait until queued speaker output fully drains."""
+
     async def mute(self) -> None:
         """Mute microphone and speaker output."""
 
