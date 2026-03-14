@@ -88,7 +88,7 @@ Window {
     NumberAnimation on ambientPhase {
         from: 0
         to: Math.PI * 2
-        duration: 5600
+        duration: 6200
         loops: Animation.Infinite
         running: !appState.muted
     }
@@ -96,7 +96,7 @@ Window {
     NumberAnimation on wavePhase {
         from: 0
         to: Math.PI * 2
-        duration: visualState === "speaking" ? 920 : 1320
+        duration: visualState === "speaking" ? 860 : 1260
         loops: Animation.Infinite
         running: visualState === "listening" || visualState === "speaking"
     }
@@ -120,8 +120,9 @@ Window {
 
         property string tone: "neutral"
 
+        hoverEnabled: true
         implicitWidth: Math.max(54, label.implicitWidth + 24)
-        implicitHeight: 34
+        implicitHeight: 36
         padding: 0
 
         contentItem: Text {
@@ -134,13 +135,33 @@ Window {
             font.family: "Bahnschrift"
             font.pixelSize: 12
             font.weight: Font.DemiBold
+            renderType: Text.NativeRendering
         }
 
         background: Rectangle {
-            radius: 17
-            color: tone === "danger" ? (control.down ? "#241218" : "#171017") : tone === "accent" ? (control.down ? "#14253a" : "#102033") : (control.down ? "#101926" : "#0c1522")
+            radius: 18
+            color: tone === "danger"
+                ? (control.down ? "#251218" : control.hovered ? "#19131b" : "#161017")
+                : tone === "accent"
+                    ? (control.down ? "#14253a" : control.hovered ? "#12253b" : "#102033")
+                    : (control.down ? "#101926" : control.hovered ? "#0f1a29" : "#0c1522")
             border.width: 1
-            border.color: tone === "danger" ? Qt.rgba(0.83, 0.26, 0.32, 0.56) : tone === "accent" ? Qt.rgba(0.48, 0.77, 1.0, 0.46) : Qt.rgba(0.58, 0.72, 0.9, 0.17)
+            border.color: tone === "danger"
+                ? Qt.rgba(0.83, 0.26, 0.32, control.hovered ? 0.64 : 0.56)
+                : tone === "accent"
+                    ? Qt.rgba(0.48, 0.77, 1.0, control.hovered ? 0.56 : 0.46)
+                    : Qt.rgba(0.58, 0.72, 0.9, control.hovered ? 0.24 : 0.17)
+
+            Rectangle {
+                anchors.centerIn: parent
+                width: parent.width + 10
+                height: parent.height + 10
+                radius: parent.radius + 5
+                color: tone === "danger" ? "#c03645" : tone === "accent" ? root.accentColor : "#6a88ac"
+                opacity: tone === "danger" ? 0.06 : tone === "accent" ? 0.08 : 0.03
+                visible: control.hovered || control.down
+                z: -1
+            }
 
             Rectangle {
                 anchors.left: parent.left
@@ -155,11 +176,18 @@ Window {
 
     component StatusPill : Rectangle {
         implicitWidth: statusRow.implicitWidth + 20
-        implicitHeight: 34
-        radius: 17
-        color: Qt.rgba(0.09, 0.15, 0.23, 0.74)
+        implicitHeight: 36
+        radius: 18
+        color: Qt.rgba(0.09, 0.15, 0.23, 0.68)
         border.width: 1
-        border.color: Qt.rgba(0.62, 0.77, 0.97, 0.12)
+        border.color: Qt.rgba(0.62, 0.77, 0.97, 0.1)
+
+        Rectangle {
+            anchors.fill: parent
+            radius: parent.radius
+            color: root.panelTint
+            opacity: 0.08
+        }
 
         Row {
             id: statusRow
@@ -220,30 +248,30 @@ Window {
 
                 Rectangle {
                     anchors.centerIn: parent
-                    width: 142
-                    height: 142
-                    radius: 71
+                    width: 150
+                    height: 150
+                    radius: 75
                     color: root.accentColor
-                    opacity: appState.muted ? 0.04 : 0.028
-                    scale: 0.92 + Math.abs(Math.sin(root.ambientPhase + 0.8)) * 0.09
+                    opacity: appState.muted ? 0.03 : 0.018
+                    scale: 0.9 + Math.abs(Math.sin(root.ambientPhase + 0.8)) * 0.1
                 }
 
                 Rectangle {
                     anchors.centerIn: parent
-                    width: 126
-                    height: 126
-                    radius: 63
+                    width: 132
+                    height: 132
+                    radius: 66
                     color: root.accentColor
-                    opacity: appState.muted ? 0.05 : visualState === "speaking" ? 0.08 : 0.055
-                    scale: 0.95 + Math.abs(Math.sin(root.ambientPhase)) * 0.06
+                    opacity: appState.muted ? 0.04 : visualState === "speaking" ? 0.085 : 0.05
+                    scale: 0.95 + Math.abs(Math.sin(root.ambientPhase)) * 0.05
                 }
 
                 Item {
                     anchors.centerIn: parent
                     width: 130
                     height: 130
-                    rotation: root.ambientPhase * 10
-                    opacity: appState.muted ? 0.12 : 0.28
+                    rotation: root.ambientPhase * 9
+                    opacity: appState.muted ? 0.08 : 0.22
 
                     Repeater {
                         model: 3
@@ -294,10 +322,10 @@ Window {
                             property real intensity: (Math.sin(root.wavePhase + index * 0.3) + 1) / 2
 
                             width: 2
-                            height: root.visualState === "speaking" ? 7 + intensity * 16 : 5 + intensity * 10
+                            height: root.visualState === "speaking" ? 7 + intensity * 18 : 5 + intensity * 11
                             radius: 1
                             color: root.accentColor
-                            opacity: root.visualState === "speaking" ? 0.9 : 0.66
+                            opacity: root.visualState === "speaking" ? 0.92 : 0.62
                             x: parent.width / 2 - width / 2 + Math.cos(index / 20 * Math.PI * 2) * 57
                             y: parent.height / 2 - height / 2 + Math.sin(index / 20 * Math.PI * 2) * 57
 
@@ -317,7 +345,17 @@ Window {
                     radius: 54
                     color: "transparent"
                     border.width: 1
-                    border.color: Qt.rgba(0.86, 0.93, 1.0, 0.18)
+                    border.color: Qt.rgba(0.86, 0.93, 1.0, 0.16)
+                }
+
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 118
+                    height: 118
+                    radius: 59
+                    color: "transparent"
+                    border.width: 1
+                    border.color: Qt.rgba(root.accentColor.r, root.accentColor.g, root.accentColor.b, appState.muted ? 0.05 : 0.08)
                 }
 
                 Rectangle {
@@ -343,13 +381,24 @@ Window {
                 }
 
                 Rectangle {
-                    width: 34
-                    height: 6
-                    radius: 3
-                    color: Qt.rgba(0.92, 0.98, 1.0, 0.11)
+                    width: 42
+                    height: 7
+                    radius: 4
+                    color: Qt.rgba(0.94, 0.98, 1.0, 0.11)
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.top: parent.top
-                    anchors.topMargin: 30
+                    anchors.topMargin: 26
+                    rotation: -20
+                }
+
+                Rectangle {
+                    width: 28
+                    height: 5
+                    radius: 3
+                    color: Qt.rgba(0.92, 0.98, 1.0, 0.07)
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.top: parent.top
+                    anchors.topMargin: 36
                     rotation: -18
                 }
 
@@ -465,12 +514,12 @@ Window {
                     gradient: Gradient {
                         GradientStop {
                             position: 0.0
-                            color: Qt.rgba(0.045, 0.08, 0.13, 0.94)
+                            color: Qt.rgba(0.05, 0.085, 0.135, 0.95)
                         }
 
                         GradientStop {
                             position: 1.0
-                            color: Qt.rgba(0.025, 0.045, 0.08, 0.96)
+                            color: Qt.rgba(0.022, 0.04, 0.075, 0.97)
                         }
                     }
 
@@ -478,7 +527,28 @@ Window {
                         anchors.fill: parent
                         radius: parent.radius
                         color: root.panelTint
-                        opacity: root.visualState === "idle" ? 0.08 : 0.12
+                        opacity: root.visualState === "idle" ? 0.06 : 0.1
+                    }
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        height: parent.height * 0.46
+                        radius: parent.radius
+                        color: Qt.rgba(0.92, 0.98, 1.0, 0.028)
+                    }
+
+                    Rectangle {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.top: parent.bottom
+                        anchors.topMargin: -8
+                        width: parent.width - 34
+                        height: 26
+                        radius: 13
+                        color: root.accentColor
+                        opacity: 0.025
+                        z: -1
                     }
 
                     Rectangle {
@@ -542,9 +612,9 @@ Window {
                             wrapMode: Text.WordWrap
                             maximumLineCount: 2
                             elide: Text.ElideRight
-                            color: "#95a9c0"
+                            color: "#9cafc5"
                             font.family: "Segoe UI Variable"
-                            font.pixelSize: 11
+                            font.pixelSize: 12
                         }
 
                         Rectangle {
@@ -617,7 +687,7 @@ Window {
                                     color: "#edf5ff"
                                     elide: Text.ElideRight
                                     font.family: "Segoe UI Variable"
-                                    font.pixelSize: 12
+                                    font.pixelSize: 13
                                 }
 
                                 Text {
