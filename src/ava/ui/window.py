@@ -11,6 +11,7 @@ from ava.app.bootstrap import BootstrapContext
 from ava.ui.app_state import QtAssistantState
 from ava.ui.bridge import UiBridge
 from ava.ui.history_model import HistoryListModel
+from ava.voice.service import VoiceRuntimeService
 
 
 def _create_tray_icon() -> QIcon:
@@ -77,7 +78,13 @@ def run_ui(context: BootstrapContext) -> int:
     engine = QQmlApplicationEngine()
     app_state = QtAssistantState(context.state, context.settings)
     history_model = HistoryListModel(context.journal)
-    bridge = UiBridge(context.controller, app_state, history_model)
+    voice_service = VoiceRuntimeService(
+        settings=context.settings,
+        state=context.state,
+        journal=context.journal,
+    )
+    voice_service.start()
+    bridge = UiBridge(context.controller, app_state, history_model, voice_service)
 
     engine.rootContext().setContextProperty("appState", app_state)
     engine.rootContext().setContextProperty("uiBridge", bridge)
@@ -95,4 +102,5 @@ def run_ui(context: BootstrapContext) -> int:
 
     if tray is not None:
         app.aboutToQuit.connect(tray.hide)
+    app.aboutToQuit.connect(voice_service.shutdown)
     return app.exec()

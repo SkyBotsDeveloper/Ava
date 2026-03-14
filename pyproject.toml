@@ -32,6 +32,7 @@ dev = [
 ]
 voice = [
   "google-genai>=1.67,<2",
+  "numpy>=2,<3",
   "openwakeword>=0.6,<0.7",
   "sounddevice>=0.5,<0.6",
   "webrtcvad>=2.0.10,<3"

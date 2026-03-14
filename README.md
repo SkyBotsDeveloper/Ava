@@ -4,15 +4,18 @@ Ava is a Windows-only, voice-first AI desktop agent with a premium orb UI, local
 
 ## Current status
 
-Phase 2 shell is in place:
+Phase 3 is now started on top of the frozen shell:
 
 - Python project scaffold with tooling, linting, tests, and pre-commit hooks
 - Config loading via `.env`
 - Structured logging and runtime path bootstrap
 - SQLite-backed action journal and memory schema bootstrap
 - Live-verified PySide6/QML orb shell with a compact collapsed default
+- Final shell styling pass with smoother halo motion, lighter panel glass, and cleaner premium controls
 - Expandable control drawer with text fallback, mute, cancel, and recent activity history
 - Intent routing, browser strategy defaults, and safety policy scaffolding
+- Gemini Live client adapter and Hinglish system prompt
+- Async voice runtime scaffolding for Gemini text turns, audio playback, wake-word monitoring, and state transitions
 
 ## Product defaults locked in this repo
 
@@ -29,31 +32,33 @@ Phase 2 shell is in place:
 3. Install dependencies:
 
 ```powershell
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,voice]"
 ```
 
-4. Copy `.env.example` to `.env` and add your Gemini API key when Phase 3 begins.
-5. Run tests:
+4. Copy `.env.example` to `.env`.
+5. Add your Gemini API key to `AVA_GEMINI_API_KEY`.
+6. Add one or more local wake-word model paths to `AVA_WAKEWORD_MODEL_PATHS` when you are ready to test always-on wake.
+7. Run tests:
 
 ```powershell
 pytest
 ```
 
-6. Start the desktop shell:
+8. Start the desktop shell:
 
 ```powershell
 python -m ava.main
 ```
 
-The shell launches as a compact orb by default. Use `Open` or double-click the orb area to expand the drawer.
+The shell launches as a compact orb by default. Click the orb to open the assistant sheet.
 
 ## Repo layout
 
 ```text
 src/ava/app          Application bootstrap and orchestration
 src/ava/ui           PySide6/QML orb shell and UI bridge
-src/ava/voice        Voice and wake-word interfaces
-src/ava/live         Gemini Live interfaces
+src/ava/voice        Voice runtime, audio, VAD, and wake-word interfaces
+src/ava/live         Gemini Live adapter and prompting
 src/ava/intents      Shared text/voice intent routing
 src/ava/automation   Browser and Windows control planning
 src/ava/observation  Observation policy and privacy controls
@@ -75,3 +80,9 @@ tests/               Unit tests and integration scaffolding
 - Sending messages, deleting files, installing apps, submitting logins, and sensitive or identity-dependent actions require confirmation.
 - `Stop Ava` and `Cancel` are hard interruption commands and must stop active tasks safely.
 - Banking, password managers, and similarly sensitive contexts are private-by-default and should stay suggestion-only unless explicitly overridden.
+
+## Phase 3 blockers
+
+- Gemini Live turns are blocked until `AVA_GEMINI_API_KEY` is set.
+- Always-on wake testing is blocked until `AVA_WAKEWORD_MODEL_PATHS` points to a real local openWakeWord model file.
+- Global push-to-talk hotkey wiring is still pending behind the Phase 3 runtime groundwork.
