@@ -19,6 +19,7 @@
 - Added a Phase 3 voice runtime with async session orchestration, audio playback wiring, wake-word scaffolding, and VAD-based turn ending
 - Added a manual voice trigger path that works without wake-word models
 - Added initial Phase 3 tests for prompting, Gemini event normalization, and voice runtime state/journal flow
+- Added a sacrificial browser controller that launches an isolated Edge/Chrome window with a temporary profile and CDP automation for safe browser verification
 
 ### Verified
 
@@ -32,6 +33,7 @@
 - Phase 3 runtime tests pass without a real Gemini key by using fakes for the live client
 - Real Gemini Live text fallback now connects with the `.env` key and returns a Hinglish response
 - Real manual voice trigger starts `listening` and transitions to `thinking` after manual stop, even with wake-word paths still empty
+- Real sacrificial browser verification succeeds for isolated website open/navigation, tab actions, page info detection, YouTube playlist playback, Instagram login page open, and WhatsApp Web open without touching the user's real browser session
 
 ### Blocked
 
