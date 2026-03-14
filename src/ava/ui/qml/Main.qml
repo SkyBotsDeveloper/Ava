@@ -3,8 +3,8 @@ import QtQuick.Controls
 
 Window {
     id: root
-    width: shellMode === "orb" ? 144 : shellMode === "quick" ? 300 : 340
-    height: shellMode === "orb" ? 146 : shellMode === "quick" ? 248 : 368
+    width: shellMode === "orb" ? 142 : shellMode === "quick" ? 292 : 332
+    height: shellMode === "orb" ? 146 : shellMode === "quick" ? 236 : 334
     visible: true
     color: "transparent"
     flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
@@ -14,6 +14,8 @@ Window {
     property string visualState: appState.muted ? "muted" : appState.status
     property real ambientPhase: 0
     property real audioPhase: 0
+    property color accentColor: accentFor(visualState)
+    property color panelTint: softAccentFor(visualState)
 
     function accentFor(stateKey) {
         if (stateKey === "listening")
@@ -106,14 +108,15 @@ Window {
 
         property color glowColor: "#6fcfff"
         property bool danger: false
+        property bool prominent: false
 
-        implicitWidth: 52
+        implicitWidth: prominent ? 58 : 50
         implicitHeight: 30
         padding: 0
 
         contentItem: Text {
             text: control.text
-            color: control.danger ? "#ffc7c7" : "#eef5ff"
+            color: control.danger ? "#ffd0d0" : control.prominent ? "#f7fbff" : "#d6e4f5"
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             font.family: "Bahnschrift"
@@ -123,9 +126,18 @@ Window {
 
         background: Rectangle {
             radius: 15
-            color: control.down ? "#121b2a" : "#0d1523"
+            color: control.danger ? (control.down ? "#231218" : "#16111a") : control.prominent ? (control.down ? "#132238" : "#101d30") : (control.down ? "#101827" : "#0c1422")
             border.width: 1
-            border.color: control.danger ? "#8f2430" : Qt.rgba(0.58, 0.74, 0.92, 0.18)
+            border.color: control.danger ? Qt.rgba(0.85, 0.28, 0.33, 0.55) : control.prominent ? Qt.rgba(0.46, 0.76, 1.0, 0.45) : Qt.rgba(0.58, 0.74, 0.92, 0.15)
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                height: parent.height / 2
+                radius: parent.radius
+                color: control.danger ? Qt.rgba(1.0, 0.64, 0.64, 0.05) : Qt.rgba(0.93, 0.98, 1.0, control.prominent ? 0.06 : 0.03)
+            }
         }
     }
 
@@ -134,15 +146,15 @@ Window {
         color: "transparent"
 
         Rectangle {
-            id: connectorGlow
+            id: connectorStem
 
             anchors.horizontalCenter: parent.horizontalCenter
-            y: 86
-            width: 12
-            height: shellMode === "orb" ? 0 : 26
-            radius: 6
-            color: root.accentFor(root.visualState)
-            opacity: shellMode === "full" ? 0.18 : 0.12
+            y: 92
+            width: shellMode === "full" ? 18 : 14
+            height: shellMode === "orb" ? 0 : 34
+            radius: width / 2
+            color: root.accentColor
+            opacity: shellMode === "full" ? 0.15 : 0.1
             visible: shellMode !== "orb"
 
             Behavior on height {
@@ -153,15 +165,42 @@ Window {
         }
 
         Rectangle {
+            id: connectorDockAura
+
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: 102
+            width: shellMode === "full" ? 120 : 108
+            height: shellMode === "orb" ? 0 : 34
+            radius: 17
+            color: root.accentColor
+            opacity: shellMode === "full" ? 0.08 : 0.06
+            visible: shellMode !== "orb"
+        }
+
+        Rectangle {
+            id: connectorDock
+
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: 106
+            width: shellMode === "full" ? 112 : 100
+            height: shellMode === "orb" ? 0 : 28
+            radius: 14
+            color: "#09121d"
+            border.width: shellMode === "orb" ? 0 : 1
+            border.color: Qt.rgba(0.72, 0.84, 1.0, 0.08)
+            visible: shellMode !== "orb"
+        }
+
+        Rectangle {
             id: panelAura
 
             anchors.horizontalCenter: parent.horizontalCenter
-            y: 98
-            width: shellMode === "full" ? 328 : 284
-            height: shellMode === "full" ? 260 : 140
-            radius: shellMode === "full" ? 34 : 28
-            color: root.accentFor(root.visualState)
-            opacity: shellMode === "orb" ? 0 : 0.06
+            y: 116
+            width: shellMode === "full" ? 320 : 282
+            height: shellMode === "full" ? 208 : 112
+            radius: shellMode === "full" ? 32 : 24
+            color: root.accentColor
+            opacity: shellMode === "orb" ? 0 : 0.045
             scale: shellMode === "orb" ? 0.92 : 1.0
             visible: shellMode !== "orb"
 
@@ -182,24 +221,24 @@ Window {
             id: panel
 
             anchors.horizontalCenter: parent.horizontalCenter
-            y: 102
-            width: shellMode === "full" ? 314 : 270
-            height: shellMode === "full" ? 246 : 126
-            radius: shellMode === "full" ? 30 : 26
+            y: 120
+            width: shellMode === "full" ? 308 : 270
+            height: shellMode === "full" ? 196 : 108
+            radius: shellMode === "full" ? 28 : 22
             visible: shellMode !== "orb"
             opacity: shellMode === "orb" ? 0 : 1
-            color: "#08101c"
+            color: "#07101a"
             border.width: 1
-            border.color: Qt.rgba(0.64, 0.8, 1.0, 0.12)
+            border.color: Qt.rgba(0.64, 0.8, 1.0, 0.08)
 
             gradient: Gradient {
                 GradientStop {
                     position: 0.0
-                    color: Qt.rgba(0.06, 0.1, 0.16, 0.96)
+                    color: Qt.rgba(0.045, 0.08, 0.13, 0.92)
                 }
                 GradientStop {
                     position: 1.0
-                    color: Qt.rgba(0.03, 0.06, 0.1, 0.97)
+                    color: Qt.rgba(0.025, 0.045, 0.08, 0.95)
                 }
             }
 
@@ -209,72 +248,102 @@ Window {
                 }
             }
 
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.top: parent.top
+                anchors.topMargin: 8
+                width: shellMode === "full" ? 88 : 74
+                height: 4
+                radius: 2
+                color: Qt.rgba(0.86, 0.93, 1.0, 0.12)
+            }
+
             Column {
                 anchors.fill: parent
                 anchors.margins: 14
-                spacing: 12
+                spacing: shellMode === "full" ? 11 : 10
 
                 Row {
                     width: parent.width
-                    spacing: 8
+                    height: 30
+                    spacing: 10
 
                     Rectangle {
-                        width: 8
-                        height: 8
-                        radius: 4
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: root.accentFor(root.visualState)
-                    }
+                        width: shellMode === "full" ? 96 : 92
+                        height: 28
+                        radius: 14
+                        color: Qt.rgba(0.08, 0.14, 0.22, 0.7)
+                        border.width: 1
+                        border.color: Qt.rgba(0.6, 0.76, 0.96, 0.12)
 
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: root.statusLabel(root.visualState)
-                        color: "#eef5ff"
-                        font.family: "Bahnschrift"
-                        font.pixelSize: 12
-                        font.weight: Font.DemiBold
+                        Row {
+                            anchors.centerIn: parent
+                            spacing: 7
+
+                            Rectangle {
+                                width: 7
+                                height: 7
+                                radius: 3.5
+                                anchors.verticalCenter: parent.verticalCenter
+                                color: root.accentColor
+                            }
+
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: root.statusLabel(root.visualState)
+                                color: "#eef5ff"
+                                font.family: "Bahnschrift"
+                                font.pixelSize: 12
+                                font.weight: Font.DemiBold
+                            }
+                        }
                     }
 
                     Item {
-                        width: shellMode === "full" ? 88 : 52
+                        width: shellMode === "full" ? 46 : 24
                         height: 1
                     }
 
-                    GhostButton {
-                        width: appState.muted ? 58 : 52
-                        text: appState.muted ? "Unmute" : "Mute"
-                        onClicked: uiBridge.toggleMute()
-                    }
+                    Row {
+                        spacing: 6
 
-                    GhostButton {
-                        width: 48
-                        text: "Stop"
-                        danger: true
-                        onClicked: uiBridge.emergencyStop()
-                    }
+                        GhostButton {
+                            width: appState.muted ? 60 : 50
+                            text: appState.muted ? "Unmute" : "Mute"
+                            onClicked: uiBridge.toggleMute()
+                        }
 
-                    GhostButton {
-                        width: shellMode === "full" ? 48 : 50
-                        text: shellMode === "full" ? "Less" : "More"
-                        onClicked: root.toggleFullPanel()
+                        GhostButton {
+                            width: 54
+                            text: "Stop"
+                            danger: true
+                            prominent: true
+                            onClicked: uiBridge.emergencyStop()
+                        }
+
+                        GhostButton {
+                            width: shellMode === "full" ? 48 : 52
+                            text: shellMode === "full" ? "Less" : "More"
+                            onClicked: root.toggleFullPanel()
+                        }
                     }
                 }
 
                 Text {
                     width: parent.width
                     text: root.statusMessage(root.visualState)
-                    color: "#8295ac"
+                    color: "#91a5bd"
                     font.family: "Segoe UI Variable"
                     font.pixelSize: 11
                 }
 
                 Rectangle {
                     width: parent.width
-                    height: 54
-                    radius: 16
-                    color: "#0d1523"
+                    height: 48
+                    radius: 15
+                    color: Qt.rgba(0.08, 0.12, 0.19, 0.78)
                     border.width: 1
-                    border.color: Qt.rgba(0.61, 0.75, 0.92, 0.08)
+                    border.color: Qt.rgba(0.61, 0.75, 0.92, 0.05)
 
                     Column {
                         anchors.fill: parent
@@ -293,10 +362,10 @@ Window {
                         Text {
                             width: parent.width
                             text: appState.lastCommand.length > 0 ? appState.lastCommand : "Voice-first fallback available."
-                            color: "#5f7288"
+                            color: "#6f8397"
                             elide: Text.ElideRight
                             font.family: "Segoe UI Variable"
-                            font.pixelSize: 10
+                            font.pixelSize: 9
                         }
                     }
                 }
@@ -309,10 +378,10 @@ Window {
                         id: commandInput
 
                         width: parent.width - sendButton.width - 8
-                        height: 36
+                        height: 38
                         placeholderText: "Type a command"
                         color: "#f4f8ff"
-                        placeholderTextColor: "#5f7288"
+                        placeholderTextColor: "#62768e"
                         selectByMouse: true
                         font.family: "Segoe UI Variable"
                         font.pixelSize: 13
@@ -323,10 +392,10 @@ Window {
                         onActiveFocusChanged: uiBridge.commandInputFocusChanged(activeFocus)
 
                         background: Rectangle {
-                            radius: 16
-                            color: "#101928"
+                            radius: 18
+                            color: Qt.rgba(0.07, 0.11, 0.18, 0.88)
                             border.width: 1
-                            border.color: commandInput.activeFocus ? "#5dbdff" : "#1b2a3e"
+                            border.color: commandInput.activeFocus ? Qt.rgba(0.46, 0.78, 1.0, 0.7) : Qt.rgba(0.36, 0.5, 0.66, 0.18)
                         }
                     }
 
@@ -335,6 +404,7 @@ Window {
 
                         width: 62
                         text: "Send"
+                        prominent: true
                         onClicked: {
                             uiBridge.submitTextCommand(commandInput.text)
                             commandInput.clear()
@@ -342,14 +412,23 @@ Window {
                     }
                 }
 
+                Text {
+                    width: parent.width
+                    visible: shellMode !== "full"
+                    text: "Voice first. Type only when needed."
+                    color: "#54677f"
+                    font.family: "Segoe UI Variable"
+                    font.pixelSize: 9
+                }
+
                 Rectangle {
                     width: parent.width
-                    height: shellMode === "full" ? 88 : 0
-                    radius: 18
-                    color: "#0c1422"
+                    height: shellMode === "full" ? 64 : 0
+                    radius: 16
+                    color: Qt.rgba(0.05, 0.09, 0.15, 0.58)
                     border.width: shellMode === "full" ? 1 : 0
-                    border.color: Qt.rgba(0.61, 0.75, 0.92, 0.08)
-                    opacity: shellMode === "full" ? 1 : 0
+                    border.color: Qt.rgba(0.61, 0.75, 0.92, 0.05)
+                    opacity: shellMode === "full" ? 0.88 : 0
                     clip: true
                     visible: shellMode === "full"
 
@@ -362,22 +441,22 @@ Window {
                     Column {
                         anchors.fill: parent
                         anchors.margins: 10
-                        spacing: 8
+                        spacing: 6
 
                         Text {
-                            text: "Recent actions"
-                            color: "#8ea2b8"
+                            text: "Journal"
+                            color: "#70849a"
                             font.family: "Bahnschrift"
-                            font.pixelSize: 11
+                            font.pixelSize: 10
                         }
 
                         ListView {
                             id: historyList
 
                             width: parent.width
-                            height: 54
+                            height: 36
                             clip: true
-                            spacing: 6
+                            spacing: 4
                             interactive: false
                             model: historyModel
 
@@ -387,18 +466,18 @@ Window {
 
                                 Text {
                                     text: timestamp + "  " + resultStatus
-                                    color: resultStatus === "canceled" ? "#ffb4b4" : "#7cd8ff"
+                                    color: resultStatus === "canceled" ? "#d99090" : "#6cbfe0"
                                     font.family: "Segoe UI Variable"
-                                    font.pixelSize: 9
+                                    font.pixelSize: 8
                                 }
 
                                 Text {
                                     width: parent.width
                                     text: commandText
-                                    color: "#d9e6f4"
+                                    color: "#bdd0e0"
                                     elide: Text.ElideRight
                                     font.family: "Segoe UI Variable"
-                                    font.pixelSize: 11
+                                    font.pixelSize: 10
                                 }
                             }
 
@@ -406,9 +485,9 @@ Window {
                                 anchors.centerIn: parent
                                 visible: historyList.count === 0
                                 text: "No activity yet."
-                                color: "#5f7288"
+                                color: "#556a80"
                                 font.family: "Segoe UI Variable"
-                                font.pixelSize: 10
+                                font.pixelSize: 9
                             }
                         }
                     }
@@ -420,9 +499,9 @@ Window {
             id: orb
 
             anchors.horizontalCenter: parent.horizontalCenter
-            y: 10
-            width: 126
-            height: 126
+            y: 8
+            width: 124
+            height: 124
 
             MouseArea {
                 anchors.fill: parent
@@ -438,30 +517,30 @@ Window {
 
             Rectangle {
                 anchors.centerIn: parent
-                width: 116
-                height: 116
-                radius: 58
-                color: root.accentFor(root.visualState)
-                opacity: appState.muted ? 0.06 : 0.12
-                scale: 0.92 + Math.abs(Math.sin(root.ambientPhase)) * 0.08
+                width: 110
+                height: 110
+                radius: 55
+                color: root.accentColor
+                opacity: appState.muted ? 0.045 : 0.085
+                scale: 0.95 + Math.abs(Math.sin(root.ambientPhase)) * 0.05
             }
 
             Rectangle {
                 anchors.centerIn: parent
-                width: 130
-                height: 130
-                radius: 65
-                color: root.accentFor(root.visualState)
-                opacity: root.visualState === "speaking" ? 0.08 : 0.04
-                scale: 0.88 + Math.abs(Math.sin(root.ambientPhase + 1.3)) * 0.1
+                width: 126
+                height: 126
+                radius: 63
+                color: root.accentColor
+                opacity: root.visualState === "speaking" ? 0.065 : 0.028
+                scale: 0.9 + Math.abs(Math.sin(root.ambientPhase + 1.3)) * 0.08
             }
 
             Item {
                 anchors.centerIn: parent
-                width: 120
-                height: 120
-                rotation: root.ambientPhase * 16
-                opacity: appState.muted ? 0.15 : 0.38
+                width: 116
+                height: 116
+                rotation: root.ambientPhase * 14
+                opacity: appState.muted ? 0.1 : 0.24
 
                 Repeater {
                     model: 3
@@ -470,17 +549,17 @@ Window {
                         width: index === 0 ? 5 : 4
                         height: width
                         radius: width / 2
-                        color: index === 0 ? "#e5f3ff" : root.accentFor(root.visualState)
-                        x: parent.width / 2 - width / 2 + Math.cos(index / 3 * Math.PI * 2 + 0.5) * 53
-                        y: parent.height / 2 - height / 2 + Math.sin(index / 3 * Math.PI * 2 + 0.5) * 53
+                        color: index === 0 ? "#eef7ff" : root.accentColor
+                        x: parent.width / 2 - width / 2 + Math.cos(index / 3 * Math.PI * 2 + 0.5) * 50
+                        y: parent.height / 2 - height / 2 + Math.sin(index / 3 * Math.PI * 2 + 0.5) * 50
                     }
                 }
             }
 
             Item {
                 anchors.centerIn: parent
-                width: 124
-                height: 124
+                width: 122
+                height: 122
                 visible: root.visualState === "thinking"
                 rotation: root.ambientPhase * 57.2958
 
@@ -493,34 +572,34 @@ Window {
                         radius: width / 2
                         color: index % 2 === 0 ? "#7dd3fc" : "#7ba6ff"
                         opacity: index % 2 === 0 ? 0.95 : 0.55
-                        x: parent.width / 2 - width / 2 + Math.cos(index / 8 * Math.PI * 2) * 54
-                        y: parent.height / 2 - height / 2 + Math.sin(index / 8 * Math.PI * 2) * 54
+                        x: parent.width / 2 - width / 2 + Math.cos(index / 8 * Math.PI * 2) * 52
+                        y: parent.height / 2 - height / 2 + Math.sin(index / 8 * Math.PI * 2) * 52
                     }
                 }
             }
 
             Item {
                 anchors.centerIn: parent
-                width: 128
-                height: 128
+                width: 124
+                height: 124
                 visible: root.visualState === "listening" || root.visualState === "speaking"
 
                 Repeater {
-                    model: 14
+                    model: 18
 
                     Rectangle {
-                        property real intensity: Math.abs(Math.sin(root.audioPhase + index * 0.42))
+                        property real intensity: (Math.sin(root.audioPhase + index * 0.34) + 1) / 2
 
-                        width: 3
-                        height: root.visualState === "speaking" ? 10 + intensity * 14 : 8 + intensity * 10
-                        radius: 1.5
-                        color: root.accentFor(root.visualState)
-                        opacity: root.visualState === "speaking" ? 0.85 : 0.58
-                        x: parent.width / 2 - width / 2 + Math.cos(index / 14 * Math.PI * 2) * 55
-                        y: parent.height / 2 - height / 2 + Math.sin(index / 14 * Math.PI * 2) * 55
+                        width: 2
+                        height: root.visualState === "speaking" ? 7 + intensity * 15 : 5 + intensity * 11
+                        radius: 1
+                        color: root.accentColor
+                        opacity: root.visualState === "speaking" ? 0.88 : 0.62
+                        x: parent.width / 2 - width / 2 + Math.cos(index / 18 * Math.PI * 2) * 53
+                        y: parent.height / 2 - height / 2 + Math.sin(index / 18 * Math.PI * 2) * 53
 
                         transform: Rotation {
-                            angle: index / 14 * 360 + 90
+                            angle: index / 18 * 360 + 90
                             origin.x: width / 2
                             origin.y: height / 2
                         }
@@ -528,45 +607,63 @@ Window {
                 }
             }
 
-            Rectangle {
+            Item {
                 anchors.centerIn: parent
-                width: 98
-                height: 98
-                radius: 49
-                color: "transparent"
-                border.width: 1
-                border.color: Qt.rgba(0.83, 0.91, 1.0, 0.22)
+                width: 94
+                height: 94
+                rotation: root.ambientPhase * 9.5
+                opacity: appState.muted ? 0.04 : 0.22
+
+                Rectangle {
+                    width: 28
+                    height: 5
+                    radius: 2.5
+                    color: Qt.rgba(0.92, 0.97, 1.0, 0.18)
+                    x: parent.width / 2 + 18
+                    y: parent.height / 2 - 2
+                    rotation: 24
+                }
             }
 
             Rectangle {
                 anchors.centerIn: parent
-                width: 82
-                height: 82
-                radius: 41
+                width: 94
+                height: 94
+                radius: 47
+                color: "transparent"
+                border.width: 1
+                border.color: Qt.rgba(0.86, 0.93, 1.0, 0.18)
+            }
+
+            Rectangle {
+                anchors.centerIn: parent
+                width: 78
+                height: 78
+                radius: 39
                 color: "#0b1421"
                 border.width: 1
-                border.color: Qt.rgba(0.9, 0.96, 1.0, 0.22)
+                border.color: Qt.rgba(0.9, 0.96, 1.0, 0.18)
 
                 gradient: Gradient {
                     GradientStop {
                         position: 0.0
-                        color: Qt.rgba(0.09, 0.15, 0.23, 0.96)
+                        color: Qt.rgba(0.08, 0.13, 0.2, 0.97)
                     }
                     GradientStop {
                         position: 1.0
-                        color: Qt.rgba(0.03, 0.06, 0.11, 0.98)
+                        color: Qt.rgba(0.025, 0.05, 0.1, 0.985)
                     }
                 }
             }
 
             Rectangle {
-                width: 34
-                height: 8
+                width: 30
+                height: 6
                 radius: 4
-                color: Qt.rgba(0.93, 0.98, 1.0, 0.12)
+                color: Qt.rgba(0.93, 0.98, 1.0, 0.1)
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.top: parent.top
-                anchors.topMargin: 24
+                anchors.topMargin: 28
                 rotation: -18
             }
 
@@ -579,7 +676,7 @@ Window {
                     text: "AVA"
                     color: "#f8fbff"
                     font.family: "Bahnschrift"
-                    font.pixelSize: shellMode === "orb" ? 20 : 22
+                    font.pixelSize: shellMode === "orb" ? 19 : 21
                     font.weight: Font.DemiBold
                 }
 
@@ -588,38 +685,30 @@ Window {
                     text: root.statusLabel(root.visualState)
                     color: "#9fb4ca"
                     font.family: "Segoe UI Variable"
-                    font.pixelSize: 11
+                    font.pixelSize: 10
                     visible: shellMode !== "orb"
                 }
             }
 
             Rectangle {
-                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.right: parent.right
+                anchors.rightMargin: 18
                 anchors.bottom: parent.bottom
-                width: 34
-                height: 14
-                radius: 7
-                color: "#0c1320"
-                border.width: 1
-                border.color: Qt.rgba(0.61, 0.75, 0.92, 0.12)
+                anchors.bottomMargin: 16
+                width: 10
+                height: 10
+                radius: 5
+                color: root.accentColor
+                opacity: appState.muted ? 0.55 : 0.95
 
-                Row {
+                Rectangle {
                     anchors.centerIn: parent
-                    spacing: 4
-
-                    Rectangle {
-                        width: 5
-                        height: 5
-                        radius: 2.5
-                        color: root.accentFor(root.visualState)
-                    }
-
-                    Rectangle {
-                        width: 11
-                        height: 2
-                        radius: 1
-                        color: Qt.rgba(0.86, 0.93, 1.0, 0.35)
-                    }
+                    width: 18
+                    height: 18
+                    radius: 9
+                    color: "transparent"
+                    border.width: 1
+                    border.color: Qt.rgba(root.accentColor.r, root.accentColor.g, root.accentColor.b, 0.18)
                 }
             }
         }
