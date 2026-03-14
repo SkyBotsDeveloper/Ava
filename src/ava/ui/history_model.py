@@ -21,7 +21,7 @@ class HistoryListModel(QAbstractListModel):
     def __init__(
         self,
         journal: ActionJournalStore,
-        limit: int = 6,
+        limit: int = 3,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
