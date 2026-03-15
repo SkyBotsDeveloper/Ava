@@ -328,6 +328,89 @@ def test_controller_retries_youtube_search_from_sticky_browser_context(tmp_path:
     assert fake_sacrificial.current_page.url.endswith("search_query=lofi+hip+hop+playlist")
 
 
+def test_controller_retries_from_stored_intended_query_after_open_youtube(tmp_path: Path) -> None:
+    fake_sacrificial = FakeSacrificialBrowserController()
+    controller = _build_controller(
+        tmp_path,
+        browser_command_mode="isolated",
+        sacrificial_controller=fake_sacrificial,
+    )
+    intent = controller.intent_router.parse(
+        "YouTube par lofi hip hop playlist search karo",
+        source="voice",
+    )
+    controller.remember_browser_intent(intent, raw_text=intent.raw_text, source="voice")
+    controller.handle_text_command("YouTube kholo", source="voice")
+
+    result = controller.handle_text_command("sirf YouTube khola hai", source="voice")
+
+    assert result.response_text == "YouTube par `lofi hip hop playlist` search kar diya."
+    assert controller.state.active_browser_task is not None
+    assert controller.state.active_browser_task.intended_query == "lofi hip hop playlist"
+    assert controller.state.active_browser_task.last_action_name == "search_youtube"
+    assert fake_sacrificial.current_page.url.endswith("search_query=lofi+hip+hop+playlist")
+
+
+def test_controller_retries_playlist_search_from_stored_query_phrase(tmp_path: Path) -> None:
+    fake_sacrificial = FakeSacrificialBrowserController()
+    controller = _build_controller(
+        tmp_path,
+        browser_command_mode="isolated",
+        sacrificial_controller=fake_sacrificial,
+    )
+    intent = controller.intent_router.parse(
+        "YouTube par lofi hip hop playlist search karo",
+        source="voice",
+    )
+    controller.remember_browser_intent(intent, raw_text=intent.raw_text, source="voice")
+    controller.handle_text_command("YouTube kholo", source="voice")
+
+    result = controller.handle_text_command("playlist bhi search karo", source="voice")
+
+    assert result.response_text == "YouTube par `lofi hip hop playlist` search kar diya."
+    assert fake_sacrificial.current_page.url.endswith("search_query=lofi+hip+hop+playlist")
+
+
+def test_controller_retries_original_query_phrase_from_stored_query(tmp_path: Path) -> None:
+    fake_sacrificial = FakeSacrificialBrowserController()
+    controller = _build_controller(
+        tmp_path,
+        browser_command_mode="isolated",
+        sacrificial_controller=fake_sacrificial,
+    )
+    intent = controller.intent_router.parse(
+        "YouTube par lofi hip hop playlist search karo",
+        source="voice",
+    )
+    controller.remember_browser_intent(intent, raw_text=intent.raw_text, source="voice")
+    controller.handle_text_command("YouTube kholo", source="voice")
+
+    result = controller.handle_text_command("jo maine bola tha woh search karo", source="voice")
+
+    assert result.response_text == "YouTube par `lofi hip hop playlist` search kar diya."
+    assert fake_sacrificial.current_page.url.endswith("search_query=lofi+hip+hop+playlist")
+
+
+def test_controller_retries_negative_youtube_open_phrase_from_stored_query(tmp_path: Path) -> None:
+    fake_sacrificial = FakeSacrificialBrowserController()
+    controller = _build_controller(
+        tmp_path,
+        browser_command_mode="isolated",
+        sacrificial_controller=fake_sacrificial,
+    )
+    intent = controller.intent_router.parse(
+        "YouTube par lofi hip hop playlist search karo",
+        source="voice",
+    )
+    controller.remember_browser_intent(intent, raw_text=intent.raw_text, source="voice")
+    controller.handle_text_command("YouTube kholo", source="voice")
+
+    result = controller.handle_text_command("sirf YouTube nahi kholna", source="voice")
+
+    assert result.response_text == "YouTube par `lofi hip hop playlist` search kar diya."
+    assert fake_sacrificial.current_page.url.endswith("search_query=lofi+hip+hop+playlist")
+
+
 def test_controller_recovers_search_nahi_hui_from_sticky_browser_context(tmp_path: Path) -> None:
     fake_sacrificial = FakeSacrificialBrowserController()
     controller = _build_controller(

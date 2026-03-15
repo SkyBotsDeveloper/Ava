@@ -193,6 +193,7 @@ class BrowserController:
         *,
         open_first: bool = False,
     ) -> tuple[BrowserPageState, dict[str, str | bool]]:
+        plan = self.resolve_browser_plan()
         if open_first:
             open_page = self.open_youtube()
             logger.info(
@@ -208,7 +209,10 @@ class BrowserController:
             )
 
         target_url = f"https://www.youtube.com/results?search_query={quote_plus(search_query)}"
-        page = self.open_url(target_url)
+        if plan.uses_isolated_session:
+            page = self.open_url(target_url)
+        else:
+            page = self.open_new_tab(target_url)
         verification = self._verify_youtube_search_result(
             page=page,
             query=search_query,

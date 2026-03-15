@@ -100,6 +100,14 @@ def _confirmation_wav_path(voice_dir: Path) -> Path:
     raise FileNotFoundError("No spoken confirmation WAV found in voice dir.")
 
 
+def _complaint_wav_path(voice_dir: Path) -> Path:
+    for candidate in ("youtube_complaint.wav", "retry_search.wav"):
+        wav_path = voice_dir / candidate
+        if wav_path.exists():
+            return wav_path
+    raise FileNotFoundError("No spoken complaint WAV found in voice dir.")
+
+
 def _row_dict(row: JournalRow) -> dict[str, object]:
     return {
         "id": row.id,
@@ -181,6 +189,17 @@ async def _wait_for_new_voice_row(
         return None
 
     return await _wait_for(_snapshot, timeout=timeout)
+
+
+def _is_verified_youtube_search_row(row: dict[str, object] | None) -> bool:
+    if row is None:
+        return False
+    if row.get("action_name") != "search_youtube":
+        return False
+    details = row.get("details")
+    if not isinstance(details, dict):
+        return False
+    return bool(details.get("action_verified"))
 
 
 async def _verify_github(
@@ -291,27 +310,51 @@ async def _verify_youtube_followup_retry(
     *,
     voice_dir: Path,
     journal_rows_fn,
-    context,
 ) -> dict[str, object]:
     result: dict[str, object] = {}
 
-    seeded = context.controller.handle_text_command(
-        "YouTube par lofi hip hop playlist search karo",
-        source="voice",
+    before_ids = {row.id for row in journal_rows_fn()}
+    await _speak_turn(runtime, audio_gateway, voice_dir / "youtube_search.wav")
+
+    first_turn = TurnOutcome(
+        clarification=await _wait_for_clarification(runtime),
+        last_response=runtime._state.last_response,
+        last_status=runtime._state.status.value,
     )
-    result["seed_response"] = seeded.response_text
-    result["seed_browser_task"] = {
-        "task_kind": context.state.active_browser_task.task_kind
-        if context.state.active_browser_task is not None
-        else "",
-        "query": context.state.active_browser_task.query
-        if context.state.active_browser_task is not None
-        else "",
-    }
+    result["initial_turn"] = asdict(first_turn)
+
+    if first_turn.clarification:
+        await _wait_for_generation_complete(runtime)
+        await _speak_turn(
+            runtime,
+            audio_gateway,
+            _confirmation_wav_path(voice_dir),
+            pre_delay_seconds=1.0,
+        )
+
+    first_row = await _wait_for_new_voice_row(
+        journal_rows_fn,
+        before_ids=before_ids,
+        action_names={"search_youtube", "open_youtube", "play_youtube_playlist"},
+        timeout=45.0,
+    )
+    result["initial_action"] = asdict(
+        TurnOutcome(
+            journal_row=first_row,
+            last_response=runtime._state.last_response,
+            last_status=runtime._state.status.value,
+        )
+    )
 
     before_ids = {row.id for row in journal_rows_fn()}
-    await _speak_turn(runtime, audio_gateway, voice_dir / "retry_search.wav", pre_delay_seconds=1.5)
-    row = await _wait_for_new_voice_row(
+    await _wait_for_generation_complete(runtime)
+    await _speak_turn(
+        runtime,
+        audio_gateway,
+        _complaint_wav_path(voice_dir),
+        pre_delay_seconds=1.5,
+    )
+    retry_row = await _wait_for_new_voice_row(
         journal_rows_fn,
         before_ids=before_ids,
         action_names={"search_youtube"},
@@ -319,7 +362,7 @@ async def _verify_youtube_followup_retry(
     )
     result["followup_turn"] = asdict(
         TurnOutcome(
-            journal_row=row,
+            journal_row=retry_row,
             last_response=runtime._state.last_response,
             last_status=runtime._state.status.value,
         )
@@ -378,7 +421,6 @@ async def _run_scenario(
                 audio_gateway,
                 voice_dir=voice_dir,
                 journal_rows_fn=journal_rows_fn,
-                context=context,
             )
     finally:
         await runtime.stop()

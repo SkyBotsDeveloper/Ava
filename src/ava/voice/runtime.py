@@ -736,6 +736,11 @@ class VoiceRuntime:
             self._notify_state()
             return
         interpretation = self._spoken_normalizer.interpret(transcript, intent_router=intent_router)
+        self._remember_browser_intent_candidate(
+            interpretation,
+            raw_text=transcript,
+            source="voice_partial" if not final_chunk else "voice_final",
+        )
         follow_up_candidate = self._command_controller.resolve_browser_follow_up_intent(
             transcript,
             parsed_intent=interpretation.intent,
@@ -814,6 +819,11 @@ class VoiceRuntime:
         if interpretation is None:
             return False
 
+        self._remember_browser_intent_candidate(
+            interpretation,
+            raw_text=interpretation.raw_text,
+            source="voice_model_recovery",
+        )
         self._suppress_model_output = True
         self._output_transcript = ""
         self._state.status = AssistantStatus.IDLE
@@ -878,3 +888,23 @@ class VoiceRuntime:
         self._command_feedback_in_progress = False
         self._state.status = AssistantStatus.IDLE
         self._notify_state()
+
+    def _remember_browser_intent_candidate(
+        self,
+        interpretation: SpokenInterpretation,
+        *,
+        raw_text: str,
+        source: str,
+    ) -> None:
+        if self._command_controller is None:
+            return
+        if interpretation.intent.intent_type not in {
+            IntentType.SEARCH_YOUTUBE,
+            IntentType.PLAY_YOUTUBE_PLAYLIST,
+        }:
+            return
+        self._command_controller.remember_browser_intent(
+            interpretation.intent,
+            raw_text=raw_text,
+            source=source,
+        )

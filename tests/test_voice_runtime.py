@@ -77,11 +77,21 @@ class FakeVoiceCommandController:
         self.state = state
         self.intent_router = IntentRouter()
         self.calls: list[tuple[str, str]] = []
+        self.remembered_queries: list[tuple[str, str]] = []
 
     def handle_text_command(self, raw_text: str, *, source: str = "text") -> CommandResult:
         self.calls.append((raw_text, source))
         self.state.last_response = "Browser khol diya."
         return CommandResult(response_text=self.state.last_response)
+
+    def remember_browser_intent(
+        self,
+        intent: ParsedIntent,
+        *,
+        raw_text: str = "",
+        source: str = "voice",
+    ) -> None:
+        self.remembered_queries.append((intent.metadata.get("query", ""), source))
 
     def resolve_browser_follow_up_intent(
         self,
@@ -94,6 +104,9 @@ class FakeVoiceCommandController:
         if (
             "dobara search" not in lowered
             and "search nahi hui" not in lowered
+            and "sirf youtube khola hai" not in lowered
+            and "playlist bhi search karo" not in lowered
+            and "jo maine bola tha woh search karo" not in lowered
             and lowered.strip(" .!?") not in {"search", "search karo"}
         ):
             return None
@@ -501,6 +514,7 @@ def test_voice_runtime_waits_for_turn_end_before_query_confirmation(tmp_path) ->
     asyncio.run(scenario())
 
     assert controller.calls == []
+    assert controller.remembered_queries[-1][0] == "lofi hip hop playlist"
     assert state.last_response == "Ye search query `lofi hip hop playlist` sahi hai na?"
 
 
@@ -577,6 +591,7 @@ def test_voice_runtime_repairs_observed_youtube_query_collapse(tmp_path) -> None
     asyncio.run(scenario())
 
     assert controller.calls == []
+    assert controller.remembered_queries[-1][0] == "lofi hip hop playlist"
     assert state.last_response == "Ye search query `lofi hip hop playlist` sahi hai na?"
 
 
@@ -701,3 +716,43 @@ def test_voice_runtime_intercepts_malformed_browser_retry_phrase(tmp_path) -> No
     assert controller.calls == [
         ("YouTube khul gaya but woh hip hop playlist search nahi hui karo", "voice")
     ]
+
+
+def test_voice_runtime_intercepts_complaint_retry_with_stored_query_context(tmp_path) -> None:
+    settings = Settings(_env_file=None, gemini_api_key="test-key")
+    state = AssistantState(
+        active_browser_task=BrowserTaskContext(
+            task_kind="youtube_search",
+            intended_query="lofi hip hop playlist",
+            last_action_name="open_youtube",
+            page_url="https://www.youtube.com/",
+        )
+    )
+    journal = _build_journal(tmp_path)
+    live_client = FakeLiveClient(
+        receive_events=[
+            TranscriptEvent(text="sirf YouTube khola hai", is_input=True, is_final=True),
+            TurnBoundaryEvent(phase="turn_complete", reason="stop"),
+        ]
+    )
+    audio_gateway = FakeAudioGateway(played_chunks=[])
+    controller = FakeVoiceCommandController(state)
+    runtime = VoiceRuntime(
+        settings=settings,
+        state=state,
+        journal=journal,
+        live_client=live_client,
+        audio_gateway=audio_gateway,
+        command_controller=controller,
+    )
+
+    async def scenario() -> None:
+        await runtime.begin_manual_capture()
+        await runtime.end_manual_capture()
+        receive_task = runtime._receive_task
+        assert receive_task is not None
+        await receive_task
+
+    asyncio.run(scenario())
+
+    assert controller.calls == [("sirf YouTube khola hai", "voice")]

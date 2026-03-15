@@ -553,23 +553,34 @@ class WindowController:
         if win32clipboard is None:
             self._type_into_focused_browser(hwnd, text)
             return
-        self._set_clipboard_text(text)
+        try:
+            self._set_clipboard_text(text)
+        except Exception:
+            logger.warning(
+                "Clipboard unavailable for browser paste; falling back to typed input",
+                extra={"event": "browser_clipboard_fallback_to_typing", "hwnd": hwnd},
+            )
+            self._type_into_focused_browser(hwnd, text)
+            return
         self._send_browser_keys(hwnd, "^v", (_VK_CONTROL,), _VK_V)
         time.sleep(0.05)
         if previous_clipboard is not None:
-            self._set_clipboard_text(previous_clipboard)
+            with contextlib.suppress(Exception):
+                self._set_clipboard_text(previous_clipboard)
 
     def _copy_browser_url(self, hwnd: int) -> str:
         previous_clipboard = self._read_clipboard_text()
         if win32clipboard is not None:
-            self._set_clipboard_text("")
+            with contextlib.suppress(Exception):
+                self._set_clipboard_text("")
         self._focus_address_bar(hwnd)
         time.sleep(0.15)
         self._send_browser_keys(hwnd, "^c", (_VK_CONTROL,), _VK_C)
         copied = self._wait_for_clipboard_text(previous_clipboard)
         self._send_browser_keys(hwnd, "{ESC}", tuple(), _VK_ESCAPE)
         if previous_clipboard:
-            self._set_clipboard_text(previous_clipboard)
+            with contextlib.suppress(Exception):
+                self._set_clipboard_text(previous_clipboard)
         return copied
 
     def _wait_for_clipboard_text(
@@ -588,27 +599,39 @@ class WindowController:
     def _read_clipboard_text(self) -> str | None:
         if win32clipboard is None:
             return None
-        try:
-            win32clipboard.OpenClipboard()
-            if win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_UNICODETEXT):
-                return str(win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT))
-        except Exception:
-            return None
-        finally:
-            with contextlib.suppress(Exception):
-                win32clipboard.CloseClipboard()
+        for _ in range(12):
+            try:
+                win32clipboard.OpenClipboard()
+                try:
+                    if win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_UNICODETEXT):
+                        return str(win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT))
+                    return None
+                finally:
+                    with contextlib.suppress(Exception):
+                        win32clipboard.CloseClipboard()
+            except Exception:
+                time.sleep(0.03)
         return None
 
     def _set_clipboard_text(self, text: str) -> None:
         if win32clipboard is None:
             return
-        try:
-            win32clipboard.OpenClipboard()
-            win32clipboard.EmptyClipboard()
-            win32clipboard.SetClipboardText(text, win32clipboard.CF_UNICODETEXT)
-        finally:
-            with contextlib.suppress(Exception):
-                win32clipboard.CloseClipboard()
+        last_error: Exception | None = None
+        for _ in range(12):
+            try:
+                win32clipboard.OpenClipboard()
+                try:
+                    win32clipboard.EmptyClipboard()
+                    win32clipboard.SetClipboardText(text, win32clipboard.CF_UNICODETEXT)
+                    return
+                finally:
+                    with contextlib.suppress(Exception):
+                        win32clipboard.CloseClipboard()
+            except Exception as exc:
+                last_error = exc
+                time.sleep(0.03)
+        if last_error is not None:
+            raise last_error
 
 
 def browser_process_names(browser_name: str) -> tuple[str, ...]:

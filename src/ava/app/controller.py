@@ -44,6 +44,53 @@ class AvaController:
         self.executor = executor
         self._pending_action: PendingAction | None = None
 
+    def remember_browser_intent(
+        self,
+        intent: ParsedIntent,
+        *,
+        raw_text: str = "",
+        source: str = "voice",
+    ) -> None:
+        if intent.intent_type not in {
+            IntentType.SEARCH_YOUTUBE,
+            IntentType.PLAY_YOUTUBE_PLAYLIST,
+        }:
+            return
+
+        query = (intent.metadata.get("query") or "").strip()
+        if not query:
+            return
+
+        existing = self.state.active_browser_task
+        existing_intended = (existing.intended_query if existing is not None else "").strip()
+        chosen_query = self._prefer_richer_query(existing_intended, query)
+        task_kind = (
+            "youtube_playlist"
+            if intent.intent_type is IntentType.PLAY_YOUTUBE_PLAYLIST
+            else "youtube_search"
+        )
+        self.state.active_browser_task = BrowserTaskContext(
+            task_kind=task_kind,
+            query=(existing.query if existing is not None else "").strip(),
+            intended_query=chosen_query,
+            url=(existing.url if existing is not None else "https://www.youtube.com"),
+            page_title=existing.page_title if existing is not None else "",
+            page_url=existing.page_url if existing is not None else "",
+            browser_name=existing.browser_name if existing is not None else "edge",
+            last_action_name=existing.last_action_name if existing is not None else "",
+            turns_remaining=max(existing.turns_remaining, 4) if existing is not None else 4,
+        )
+        logger.info(
+            "Stored intended browser query for active task",
+            extra={
+                "event": "browser_intended_query_remembered",
+                "raw_command": raw_text,
+                "query": chosen_query,
+                "intent_type": intent.intent_type.value,
+                "source": source,
+            },
+        )
+
     def handle_text_command(self, raw_text: str, *, source: str = "text") -> CommandResult:
         cleaned = raw_text.strip()
         if not cleaned:
@@ -78,6 +125,19 @@ class AvaController:
             )
             return CommandResult(self.state.last_response)
 
+        if follow_up_intent is not None:
+            logger.info(
+                "Browser follow-up corrective action chosen",
+                extra={
+                    "event": "browser_followup_action_chosen",
+                    "raw_command": cleaned,
+                    "intent_type": follow_up_intent.intent_type.value,
+                    "query": follow_up_intent.metadata.get("query", ""),
+                    "url": follow_up_intent.metadata.get("url", ""),
+                },
+            )
+            return self._execute_intent(cleaned, follow_up_intent, ConfirmationStatus.NOT_NEEDED)
+
         if intent.intent_type is IntentType.MUTE:
             self.state.muted = True
             self.state.last_response = "Mute on."
@@ -101,19 +161,6 @@ class AvaController:
                 source=intent.source,
             )
             return CommandResult(self.state.last_response)
-
-        if follow_up_intent is not None:
-            logger.info(
-                "Browser follow-up corrective action chosen",
-                extra={
-                    "event": "browser_followup_action_chosen",
-                    "raw_command": cleaned,
-                    "intent_type": follow_up_intent.intent_type.value,
-                    "query": follow_up_intent.metadata.get("query", ""),
-                    "url": follow_up_intent.metadata.get("url", ""),
-                },
-            )
-            return self._execute_intent(cleaned, follow_up_intent, ConfirmationStatus.NOT_NEEDED)
 
         if intent.intent_type is IntentType.GENERAL_COMMAND:
             decision = self.safety_policy.evaluate(cleaned)
@@ -319,16 +366,37 @@ class AvaController:
         intent = parsed_intent or self.intent_router.parse(raw_text, source=source)
         normalized = intent.normalized_text
         lowered = normalized.lower()
+        stored_query = self._stored_browser_query(context)
 
-        if context.query and self._looks_like_youtube_retry(lowered, context):
+        if stored_query and self._looks_like_youtube_correction(lowered, context):
             logger.info(
                 "Follow-up browser task detected",
                 extra={
                     "event": "browser_followup_detected",
                     "raw_command": raw_text,
                     "task_kind": context.task_kind,
-                    "query": context.query,
+                    "query": stored_query,
                     "page_url": context.page_url,
+                },
+            )
+            logger.info(
+                "Loaded stored browser query for retry",
+                extra={
+                    "event": "stored_browser_query_loaded",
+                    "raw_command": raw_text,
+                    "stored_query": stored_query,
+                    "task_kind": context.task_kind,
+                    "last_action_name": context.last_action_name,
+                },
+            )
+            logger.info(
+                "Retrying browser action from stored query",
+                extra={
+                    "event": "browser_retry_from_stored_query",
+                    "raw_command": raw_text,
+                    "stored_query": stored_query,
+                    "task_kind": context.task_kind,
+                    "last_action_name": context.last_action_name,
                 },
             )
             return ParsedIntent(
@@ -337,23 +405,80 @@ class AvaController:
                 normalized_text=normalized,
                 source=source,
                 metadata={
-                    "query": context.query,
-                    "follow_up_reason": "retry_youtube_search",
+                    "query": stored_query,
+                    "follow_up_reason": "retry_youtube_search_from_stored_query",
                     "context_task_kind": context.task_kind,
                     "compound_open_first": "true",
                     "compound_action": "open_youtube_then_search",
+                    "stored_query_retry": "true",
                 },
             )
 
-        if context.query and self._looks_like_youtube_play_request(lowered, context):
+        if stored_query and self._looks_like_youtube_retry(lowered, context):
             logger.info(
                 "Follow-up browser task detected",
                 extra={
                     "event": "browser_followup_detected",
                     "raw_command": raw_text,
                     "task_kind": context.task_kind,
-                    "query": context.query,
+                    "query": stored_query,
                     "page_url": context.page_url,
+                },
+            )
+            logger.info(
+                "Loaded stored browser query for retry",
+                extra={
+                    "event": "stored_browser_query_loaded",
+                    "raw_command": raw_text,
+                    "stored_query": stored_query,
+                    "task_kind": context.task_kind,
+                    "last_action_name": context.last_action_name,
+                },
+            )
+            logger.info(
+                "Retrying browser action from stored query",
+                extra={
+                    "event": "browser_retry_from_stored_query",
+                    "raw_command": raw_text,
+                    "task_kind": context.task_kind,
+                    "stored_query": stored_query,
+                    "last_action_name": context.last_action_name,
+                },
+            )
+            return ParsedIntent(
+                intent_type=IntentType.SEARCH_YOUTUBE,
+                raw_text=raw_text,
+                normalized_text=normalized,
+                source=source,
+                metadata={
+                    "query": stored_query,
+                    "follow_up_reason": "retry_youtube_search",
+                    "context_task_kind": context.task_kind,
+                    "compound_open_first": "true",
+                    "compound_action": "open_youtube_then_search",
+                    "stored_query_retry": "true",
+                },
+            )
+
+        if stored_query and self._looks_like_youtube_play_request(lowered, context):
+            logger.info(
+                "Follow-up browser task detected",
+                extra={
+                    "event": "browser_followup_detected",
+                    "raw_command": raw_text,
+                    "task_kind": context.task_kind,
+                    "query": stored_query,
+                    "page_url": context.page_url,
+                },
+            )
+            logger.info(
+                "Loaded stored browser query for retry",
+                extra={
+                    "event": "stored_browser_query_loaded",
+                    "raw_command": raw_text,
+                    "stored_query": stored_query,
+                    "task_kind": context.task_kind,
+                    "last_action_name": context.last_action_name,
                 },
             )
             return ParsedIntent(
@@ -362,11 +487,12 @@ class AvaController:
                 normalized_text=normalized,
                 source=source,
                 metadata={
-                    "query": context.query,
+                    "query": stored_query,
                     "follow_up_reason": "retry_youtube_playlist",
                     "context_task_kind": context.task_kind,
                     "compound_open_first": "true",
                     "compound_action": "open_youtube_then_play_playlist",
+                    "stored_query_retry": "true",
                 },
             )
 
@@ -426,17 +552,36 @@ class AvaController:
         elif intent.intent_type is IntentType.PLAY_YOUTUBE_PLAYLIST:
             task_kind = "youtube_playlist"
         elif intent.intent_type is IntentType.OPEN_YOUTUBE:
-            task_kind = "youtube_open"
+            task_kind = (
+                self.state.active_browser_task.task_kind
+                if self.state.active_browser_task is not None
+                and self.state.active_browser_task.intended_query
+                else "youtube_open"
+            )
         else:
             task_kind = "browser_navigation"
 
+        existing = self.state.active_browser_task
+        intended_query = (intent.metadata.get("query") or "").strip() or (
+            existing.intended_query if existing is not None else ""
+        ).strip()
+        last_query = (intent.metadata.get("query") or "").strip() or (
+            existing.query if existing is not None else ""
+        ).strip()
         self.state.active_browser_task = BrowserTaskContext(
             task_kind=task_kind,
-            query=intent.metadata.get("query", ""),
-            url=intent.metadata.get("url", data.get("url", "")),
-            page_title=str(data.get("title", "")),
-            page_url=str(data.get("url", "")),
-            browser_name=str(data.get("browser_name", "")),
+            query=last_query,
+            intended_query=intended_query,
+            url=intent.metadata.get(
+                "url",
+                data.get("url", existing.url if existing is not None else ""),
+            ),
+            page_title=str(data.get("title", existing.page_title if existing is not None else "")),
+            page_url=str(data.get("url", existing.page_url if existing is not None else "")),
+            browser_name=str(
+                data.get("browser_name", existing.browser_name if existing is not None else "")
+            ),
+            last_action_name=result.action_name,
             turns_remaining=3,
         )
 
@@ -456,7 +601,7 @@ class AvaController:
 
     @staticmethod
     def _looks_like_youtube_retry(normalized_text: str, context: BrowserTaskContext) -> bool:
-        if "youtube" not in context.task_kind and "youtube.com" not in context.page_url:
+        if not AvaController._is_youtube_context(context):
             return False
         collapsed_search_forms = {"search", "search karo", "search karo na", "search please"}
         if normalized_text.strip(" .!?") in collapsed_search_forms:
@@ -473,8 +618,35 @@ class AvaController:
         return any(marker in normalized_text for marker in retry_markers)
 
     @staticmethod
+    def _looks_like_youtube_correction(normalized_text: str, context: BrowserTaskContext) -> bool:
+        if not AvaController._is_youtube_context(context):
+            return False
+        collapsed_corrections = {
+            "sirf youtube khola hai",
+            "sirf youtube nahi kholna",
+            "playlist bhi search karo",
+            "jo maine bola tha woh search karo",
+            "jo maine bola tha wo search karo",
+            "woh search karo",
+        }
+        stripped = normalized_text.strip(" .!?")
+        if stripped in collapsed_corrections:
+            return True
+        if "playlist" in normalized_text and "search" in normalized_text:
+            return True
+        correction_markers = (
+            "sirf youtube khola",
+            "sirf youtube nahi kholna",
+            "playlist bhi search",
+            "jo maine bola tha",
+            "woh bhi search karo",
+            "sirf youtube",
+        )
+        return any(marker in normalized_text for marker in correction_markers)
+
+    @staticmethod
     def _looks_like_youtube_play_request(normalized_text: str, context: BrowserTaskContext) -> bool:
-        if "youtube" not in context.task_kind and "youtube.com" not in context.page_url:
+        if not AvaController._is_youtube_context(context):
             return False
         play_markers = (
             "playlist chalao",
@@ -491,3 +663,37 @@ class AvaController:
             marker in normalized_text
             for marker in ("dobara kholo", "phir se kholo", "reopen", "again kholo")
         )
+
+    @staticmethod
+    def _stored_browser_query(context: BrowserTaskContext) -> str:
+        return (context.intended_query or context.query).strip()
+
+    @staticmethod
+    def _is_youtube_context(context: BrowserTaskContext) -> bool:
+        searchable = " ".join(
+            value.lower()
+            for value in (
+                context.task_kind,
+                context.url,
+                context.page_url,
+                context.last_action_name,
+            )
+            if value
+        )
+        return "youtube" in searchable
+
+    @staticmethod
+    def _prefer_richer_query(existing_query: str, new_query: str) -> str:
+        existing = " ".join(existing_query.split()).strip()
+        new = " ".join(new_query.split()).strip()
+        if not existing:
+            return new
+        if not new:
+            return existing
+        existing_terms = len(existing.split())
+        new_terms = len(new.split())
+        if new_terms > existing_terms:
+            return new
+        if new_terms == existing_terms and len(new) > len(existing):
+            return new
+        return existing

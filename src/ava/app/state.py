@@ -15,10 +15,12 @@ class AssistantStatus(StrEnum):
 class BrowserTaskContext:
     task_kind: str
     query: str = ""
+    intended_query: str = ""
     url: str = ""
     page_title: str = ""
     page_url: str = ""
     browser_name: str = ""
+    last_action_name: str = ""
     turns_remaining: int = 2
 
 
