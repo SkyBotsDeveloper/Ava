@@ -381,6 +381,19 @@ def test_controller_renames_active_file_with_confirmation(tmp_path: Path) -> Non
     assert Path(controller.state.filesystem_context.last_file_path).name == "ava renamed note.txt"
 
 
+def test_controller_renames_active_file_with_short_spoken_phrase(tmp_path: Path) -> None:
+    controller = _build_controller(tmp_path)
+    controller.handle_text_command("Desktop kholo")
+    controller.handle_text_command("Is folder me new file banao", source="voice")
+
+    first = controller.handle_text_command("Is file bad low phase 4 note", source="voice")
+    second = controller.handle_text_command("haan")
+
+    assert first.confirmation_required is True
+    assert second.response_text == "Rename kar diya: phase 4 note.txt"
+    assert Path(controller.state.filesystem_context.last_file_path).name == "phase 4 note.txt"
+
+
 def test_controller_moves_active_folder_with_confirmation(tmp_path: Path) -> None:
     controller = _build_controller(tmp_path)
     controller.handle_text_command("Documents kholo")
@@ -392,6 +405,47 @@ def test_controller_moves_active_folder_with_confirmation(tmp_path: Path) -> Non
     assert first.confirmation_required is True
     assert second.response_text.startswith("Move kar diya:")
     assert "downloads" in controller.state.filesystem_context.last_folder_path.lower()
+
+
+def test_controller_renames_active_folder_with_observed_spoken_collapse(tmp_path: Path) -> None:
+    controller = _build_controller(tmp_path)
+    controller.handle_text_command("Documents kholo")
+    controller.handle_text_command("Is folder me new folder banao", source="voice")
+
+    first = controller.handle_text_command("Is folder badlo phase four folder", source="voice")
+    second = controller.handle_text_command("haan")
+
+    assert first.confirmation_required is True
+    assert second.response_text == "Rename kar diya: phase four folder"
+    assert Path(controller.state.filesystem_context.last_folder_path).name == "phase four folder"
+
+
+def test_controller_moves_active_folder_with_fragmented_archive_phrase(tmp_path: Path) -> None:
+    controller = _build_controller(tmp_path)
+    controller.handle_text_command("Documents kholo")
+    controller.handle_text_command("Is folder me new folder banao", source="voice")
+    (tmp_path / "documents" / "archive").mkdir(parents=True, exist_ok=True)
+
+    first = controller.handle_text_command("Is fo lder KO ar chi ve me move.", source="voice")
+    second = controller.handle_text_command("haan")
+
+    assert first.confirmation_required is True
+    assert second.response_text.startswith("Move kar diya:")
+    assert Path(controller.state.filesystem_context.last_folder_path).parent.name == "archive"
+
+
+def test_controller_moves_active_file_into_current_folder_relative_target(tmp_path: Path) -> None:
+    controller = _build_controller(tmp_path)
+    controller.handle_text_command("Documents kholo")
+    controller.handle_text_command("Is folder me new file banao", source="voice")
+    (tmp_path / "documents" / "archive").mkdir(parents=True, exist_ok=True)
+
+    first = controller.handle_text_command("Is file ko archive me move karo", source="voice")
+    second = controller.handle_text_command("haan")
+
+    assert first.confirmation_required is True
+    assert second.response_text.startswith("Move kar diya:")
+    assert Path(controller.state.filesystem_context.last_file_path).parent.name == "archive"
 
 
 def test_controller_routes_browser_commands_into_isolated_session(tmp_path: Path) -> None:

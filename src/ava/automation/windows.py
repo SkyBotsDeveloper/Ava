@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import contextlib
 import ctypes
+import difflib
 import logging
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -325,21 +327,25 @@ class WindowController:
 
         target = Path(normalized)
         candidates: list[Path] = []
+        search_roots: list[Path] = []
         if target.is_absolute():
             candidates.append(target)
         else:
-            cwd = Path.cwd()
-            candidates.append(cwd / target)
-            for folder_key in ("desktop", "downloads", "documents"):
-                try:
-                    candidates.append(known_folder_path(folder_key) / target)
-                except FileNotFoundError:
-                    continue
+            for root in self._relative_search_roots():
+                search_roots.append(root)
+                candidates.append(root / target)
 
         if must_exist:
             for candidate in candidates:
                 if candidate.exists():
                     return candidate
+            if not target.is_absolute():
+                fuzzy_match = self._resolve_fuzzy_relative_path(
+                    target_name=normalized,
+                    search_roots=tuple(dict.fromkeys(search_roots)),
+                )
+                if fuzzy_match is not None:
+                    return fuzzy_match
             raise FileNotFoundError(f"`{target_name}` path nahi mila.")
 
         for candidate in candidates:
@@ -714,6 +720,78 @@ class WindowController:
                 time.sleep(0.03)
         if last_error is not None:
             raise last_error
+
+    @classmethod
+    def _resolve_fuzzy_relative_path(
+        cls,
+        *,
+        target_name: str,
+        search_roots: tuple[Path, ...],
+    ) -> Path | None:
+        target = Path(target_name)
+        if target.parts[:-1]:
+            return None
+
+        query = cls._normalize_path_lookup(target.name)
+        if not query:
+            return None
+
+        ranked_matches: list[tuple[int, Path]] = []
+        for root in search_roots:
+            if not root.exists() or not root.is_dir():
+                continue
+            for child in root.iterdir():
+                rank = cls._rank_fuzzy_path_match(query, child.name)
+                if rank is not None:
+                    ranked_matches.append((rank, child))
+
+        if not ranked_matches:
+            return None
+
+        best_rank = min(rank for rank, _ in ranked_matches)
+        best_matches = list(
+            dict.fromkeys(path for rank, path in ranked_matches if rank == best_rank)
+        )
+        if len(best_matches) == 1:
+            return best_matches[0]
+        return None
+
+    @staticmethod
+    def _normalize_path_lookup(value: str) -> str:
+        return re.sub(r"[\s._-]+", "", value).lower()
+
+    @classmethod
+    def _rank_fuzzy_path_match(cls, query: str, child_name: str) -> int | None:
+        child_query = cls._normalize_path_lookup(child_name)
+        if not child_query:
+            return None
+
+        token_matches = {
+            cls._normalize_path_lookup(token)
+            for token in re.split(r"[\s._-]+", child_name)
+            if token
+        }
+        if query in token_matches:
+            return 0
+        if query == child_query:
+            return 1
+        if child_query.startswith(query) or child_query.endswith(query):
+            return 2
+        if query in child_query or child_query in query:
+            return 3
+        if difflib.get_close_matches(query, [child_query], n=1, cutoff=0.82):
+            return 4
+        return None
+
+    @staticmethod
+    def _relative_search_roots() -> tuple[Path, ...]:
+        search_roots: list[Path] = [Path.cwd()]
+        for folder_key in ("desktop", "downloads", "documents"):
+            with contextlib.suppress(FileNotFoundError):
+                search_roots.append(known_folder_path(folder_key))
+        home = Path.home()
+        search_roots.extend((home / "Desktop", home / "Downloads", home / "Documents"))
+        return tuple(dict.fromkeys(search_roots))
 
 
 def browser_process_names(browser_name: str) -> tuple[str, ...]:

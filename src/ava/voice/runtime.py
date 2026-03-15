@@ -97,6 +97,7 @@ class VoiceRuntime:
         self._generation_complete_received = False
         self._pending_voice_command_text: str | None = None
         self._pending_spoken_interpretation: SpokenInterpretation | None = None
+        self._command_priority_active = False
         self._browser_command_priority_active = False
         self._command_feedback_in_progress = False
         self._suppress_model_output = False
@@ -252,6 +253,7 @@ class VoiceRuntime:
         self._silence_ms = 0
         self._pending_voice_command_text = None
         self._pending_spoken_interpretation = None
+        self._command_priority_active = False
         self._browser_command_priority_active = False
         self._command_feedback_in_progress = False
         self._suppress_model_output = False
@@ -301,6 +303,7 @@ class VoiceRuntime:
         self._pending_voice_command_text = None
         self._command_feedback_in_progress = False
         self._suppress_model_output = False
+        self._command_priority_active = False
         self._browser_command_priority_active = False
         self._state.status = AssistantStatus.LISTENING
         self._state.last_response = (
@@ -497,14 +500,19 @@ class VoiceRuntime:
                     self._output_transcript,
                     event.text,
                 )
-                if self._browser_command_priority_active and not self._command_feedback_in_progress:
+                if self._command_priority_active and not self._command_feedback_in_progress:
                     if self._try_recover_browser_command_from_model_output():
                         self._notify_state()
                         return
+                    event_name = (
+                        "browser_priority_model_output_suppressed"
+                        if self._browser_command_priority_active
+                        else "system_priority_model_output_suppressed"
+                    )
                     logger.info(
-                        "Suppressed conversational model output during browser-priority turn",
+                        "Suppressed conversational model output during automation-priority turn",
                         extra={
-                            "event": "browser_priority_model_output_suppressed",
+                            "event": event_name,
                             "transcript": self._output_transcript,
                         },
                     )
@@ -579,15 +587,19 @@ class VoiceRuntime:
             return
         if (
             event.phase in {"turn_complete", "waiting_for_input"}
-            and self._browser_command_priority_active
+            and self._command_priority_active
             and not self._pending_voice_command_text
             and self._pending_spoken_interpretation is None
         ):
-            self._state.last_response = "Browser command clear nahi tha. Dobara short me bolo."
+            self._state.last_response = "Command clear nahi tha. Dobara short me bolo."
             logger.info(
-                "Browser command needs clarification after turn end",
+                "Automation command needs clarification after turn end",
                 extra={
-                    "event": "browser_command_clarification_required",
+                    "event": (
+                        "browser_command_clarification_required"
+                        if self._browser_command_priority_active
+                        else "system_command_clarification_required"
+                    ),
                     "input_transcript": self._input_transcript,
                     "output_transcript": self._output_transcript,
                 },
@@ -662,6 +674,7 @@ class VoiceRuntime:
         self._generation_complete_received = False
         self._pending_voice_command_text = None
         self._pending_spoken_interpretation = None
+        self._command_priority_active = False
         self._browser_command_priority_active = False
         self._command_feedback_in_progress = False
         self._suppress_model_output = False
@@ -756,6 +769,9 @@ class VoiceRuntime:
         self._browser_command_priority_active = interpretation.browser_like or (
             follow_up_candidate is not None
         )
+        self._command_priority_active = (
+            self._browser_command_priority_active or interpretation.local_command_like
+        )
         if follow_up_candidate is not None:
             self._suppress_model_output = True
             if not final_chunk:
@@ -773,6 +789,8 @@ class VoiceRuntime:
             return
         if not final_chunk:
             if interpretation.intent.intent_type is not IntentType.GENERAL_COMMAND:
+                self._suppress_model_output = True
+            elif interpretation.local_command_like:
                 self._suppress_model_output = True
             return
         if interpretation.intent.intent_type is IntentType.GENERAL_COMMAND:
@@ -885,6 +903,7 @@ class VoiceRuntime:
         self._output_transcript = ""
         self._generation_complete_received = False
         self._pending_spoken_interpretation = None
+        self._command_priority_active = False
         self._browser_command_priority_active = False
         self._command_feedback_in_progress = False
         self._state.status = AssistantStatus.IDLE

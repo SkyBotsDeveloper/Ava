@@ -157,6 +157,22 @@ def test_split_voice_confirmation_phrase_normalizes() -> None:
     assert intent.intent_type is IntentType.CONFIRM
 
 
+def test_split_voice_han_confirmation_phrase_normalizes() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("Han.", source="voice")
+
+    assert intent.intent_type is IntentType.CONFIRM
+
+
+def test_split_voice_han_confirmation_with_noise_normalizes() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("Han. <noise>", source="voice")
+
+    assert intent.intent_type is IntentType.CONFIRM
+
+
 def test_split_voice_instagram_login_phrase_normalizes() -> None:
     router = IntentRouter()
 
@@ -208,6 +224,15 @@ def test_known_folder_open_detected() -> None:
     assert intent.metadata["target_name"] == "desktop"
 
 
+def test_specific_folder_open_detected_without_folder_keyword() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("Ava-Test kholo")
+
+    assert intent.intent_type is IntentType.OPEN_FOLDER
+    assert intent.metadata["target_name"] == "Ava-Test"
+
+
 def test_fragmented_known_folder_open_detected() -> None:
     router = IntentRouter()
 
@@ -245,6 +270,16 @@ def test_contextual_file_rename_detected() -> None:
     assert intent.metadata["new_name"] == "ava renamed note"
 
 
+def test_contextual_file_rename_detected_without_naam_phrase() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("Is file bad low phase 4 note", source="voice")
+
+    assert intent.intent_type is IntentType.RENAME_PATH
+    assert intent.metadata["use_active_file_context"] == "true"
+    assert intent.metadata["new_name"] == "phase 4 note"
+
+
 def test_contextual_folder_move_detected() -> None:
     router = IntentRouter()
 
@@ -253,6 +288,16 @@ def test_contextual_folder_move_detected() -> None:
     assert intent.intent_type is IntentType.MOVE_PATH
     assert intent.metadata["use_active_folder_context"] == "true"
     assert intent.metadata["destination_name"] == "downloads"
+
+
+def test_contextual_folder_move_detected_with_fragmented_archive_phrase() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("Is fo lder KO ar chi ve me move.", source="voice")
+
+    assert intent.intent_type is IntentType.MOVE_PATH
+    assert intent.metadata["use_active_folder_context"] == "true"
+    assert intent.metadata["destination_name"] == "archive"
 
 
 def test_window_minimize_intent_detected() -> None:

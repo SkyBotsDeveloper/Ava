@@ -54,6 +54,86 @@ def test_spoken_normalizer_repairs_fragmented_desktop_phrase() -> None:
     assert interpretation.intent.metadata["target_name"] == "desktop"
 
 
+def test_spoken_normalizer_repairs_ava_test_phrase() -> None:
+    normalizer = SpokenCommandNormalizer()
+
+    interpretation = normalizer.interpret("Ava Test kholo", intent_router=IntentRouter())
+
+    assert interpretation.normalized_text == "ava-test kholo"
+    assert interpretation.intent.intent_type is IntentType.OPEN_FOLDER
+    assert interpretation.intent.metadata["target_name"] == "ava-test"
+
+
+def test_spoken_normalizer_repairs_create_file_collapse() -> None:
+    normalizer = SpokenCommandNormalizer()
+
+    interpretation = normalizer.interpret(
+        "is fo lder me an while banao",
+        intent_router=IntentRouter(),
+    )
+
+    assert interpretation.normalized_text == "is folder me new file banao"
+    assert interpretation.intent.intent_type is IntentType.CREATE_FILE
+    assert interpretation.local_command_like is True
+
+
+def test_spoken_normalizer_repairs_contextual_rename_collapse() -> None:
+    normalizer = SpokenCommandNormalizer()
+
+    interpretation = normalizer.interpret(
+        "is fi le bad low phase 4 note",
+        intent_router=IntentRouter(),
+    )
+
+    assert interpretation.normalized_text == "is file badlo phase 4 note"
+    assert interpretation.intent.intent_type is IntentType.RENAME_PATH
+    assert interpretation.intent.metadata["new_name"] == "phase 4 note"
+
+
+def test_spoken_normalizer_repairs_contextual_move_archive_collapse() -> None:
+    normalizer = SpokenCommandNormalizer()
+
+    interpretation = normalizer.interpret(
+        "is fo lder KO ar chi ve me move.",
+        intent_router=IntentRouter(),
+    )
+
+    assert interpretation.normalized_text == "is folder ko archive me move"
+    assert interpretation.intent.intent_type is IntentType.MOVE_PATH
+    assert interpretation.intent.metadata["destination_name"] == "archive"
+
+
+def test_spoken_normalizer_promotes_observed_folder_rename_collapse() -> None:
+    normalizer = SpokenCommandNormalizer()
+
+    interpretation = normalizer.interpret(
+        "is fo ld pha se four folder.",
+        intent_router=IntentRouter(),
+    )
+
+    assert interpretation.normalized_text == "is folder badlo phase four folder"
+    assert interpretation.intent.intent_type is IntentType.RENAME_PATH
+    assert interpretation.intent.metadata["new_name"] == "phase four folder"
+
+
+def test_spoken_normalizer_repairs_han_confirmation_phrase() -> None:
+    normalizer = SpokenCommandNormalizer()
+
+    interpretation = normalizer.interpret("Han.", intent_router=IntentRouter())
+
+    assert interpretation.normalized_text == "haan"
+    assert interpretation.intent.intent_type is IntentType.CONFIRM
+
+
+def test_spoken_normalizer_repairs_han_confirmation_with_noise() -> None:
+    normalizer = SpokenCommandNormalizer()
+
+    interpretation = normalizer.interpret("Han. <noise>", intent_router=IntentRouter())
+
+    assert interpretation.normalized_text == "haan"
+    assert interpretation.intent.intent_type is IntentType.CONFIRM
+
+
 def test_spoken_normalizer_repairs_fragmented_window_maximize_phrase() -> None:
     normalizer = SpokenCommandNormalizer()
 

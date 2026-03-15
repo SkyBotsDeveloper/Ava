@@ -70,18 +70,28 @@
 - Added compound YouTube intent planning so `YouTube ... search karo` preserves the search query and executes as an open-then-search browser flow instead of collapsing to a simple site open
 - Added verified browser-action acknowledgements for YouTube search so Ava will not claim `search kar diya` unless the final browser state confirms the search transition
 - Added browser-priority output suppression so browser-like voice turns no longer leak Gemini conversational success text into the UI when no verified browser action ran
+- Hardened spoken file/folder command normalization for `Ava-Test` path opening, contextual file/folder creation, fragmented rename phrases, fragmented move-to-archive phrases, and noisy spoken confirmation turns like `Han. <noise>`
+- Added current-folder relative-path resolution and fuzzy local path matching so distorted spoken folder targets such as `test kholo` can still resolve to the safe `Ava-Test` folder
+- Added regression coverage for fragmented spoken file/folder commands, noisy spoken confirmations, and active-context rename/move resolution
 
 ### Verified
 
 - `ruff check .` passes
-- `pytest` passes (`81 passed`)
+- `pytest` passes (`112 passed`)
 - Live spoken verification confirms `github dot com kholo` now recovers from collapsed Gemini STT into the browser-specific prompt `Aap \`github.com\` bol rahe the na?`
 - Live spoken verification confirms `YouTube par lofi hip hop playlist search karo` now recovers into the browser-specific prompt `Ye search query \`lofi hip hop playlist\` sahi hai na?`
 - Browser-command priority is improved in live runs: both target phrases stayed on the browser-command path and produced confirmation prompts instead of falling back to general conversational replies
 - Live browser verification confirms a sticky YouTube search task can be retried from a spoken follow-up in the real default Edge session: the follow-up utterance collapsed to `search.`, Ava detected it as a browser follow-up, chose `search_youtube`, submitted `lofi hip hop playlist`, and observed the final Edge URL `https://www.youtube.com/results?search_query=lofi+hip+hop+playlist`
 - Live spoken verification confirms `YouTube kholo aur lofi hip hop playlist search karo` no longer collapses to a simple `open_youtube` action; it stays on the browser-search path and asks for the full-query confirmation instead of issuing an unverified success claim
+- Live spoken verification in the safe folder `C:\Users\strad\Desktop\Ava-Test` confirms:
+  - `Ava-Test kholo` opens the safe Explorer folder even when Gemini STT collapses it to `test kholo`
+  - `is folder me new file banao` creates a real file in `Ava-Test`
+  - `is folder me new folder banao` creates a real folder in `Ava-Test`
+  - `is file ka naam badlo <new name>` reaches a confirmation gate and renames the active file after spoken `haan`
+  - `is folder ka naam badlo <new name>` reaches a confirmation gate and renames the active folder after spoken `haan`
+  - `is file ko archive me move karo` reaches a confirmation gate and moves the active file into `Ava-Test\\archive` after spoken `haan`
+  - `is folder ko archive me move karo` reaches a confirmation gate and moves the active folder into `Ava-Test\\archive` after spoken `haan`
 
 ### Blocked
 
-- Automated live confirmation follow-up (`haan` / `yes`) is still flaky in the scripted spoken verification harness, even though the primary phrase recovery is working live
 - Arbitrary spoken domains and longer spoken queries outside the explicitly hardened patterns are still less reliable than text fallback because the upstream Gemini STT can drop key tokens before Ava sees them

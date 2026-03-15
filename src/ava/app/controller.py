@@ -620,17 +620,28 @@ class AvaController:
         metadata = dict(intent.metadata)
         filesystem = self.state.filesystem_context
         app_context = self.state.app_context
+        current_folder = filesystem.current_folder_path.strip()
 
         if intent.intent_type in {IntentType.CREATE_FILE, IntentType.CREATE_FOLDER} and (
             metadata.get("use_active_folder_context") == "true"
         ):
-            base_dir = filesystem.current_folder_path or str(Path.cwd())
+            base_dir = current_folder or str(Path.cwd())
             metadata["base_dir"] = base_dir
             if not metadata.get("target_name"):
                 metadata["target_name"] = self._default_item_name(
                     intent.intent_type,
                     base_dir=base_dir,
                 )
+
+        if (
+            intent.intent_type is IntentType.OPEN_FOLDER
+            and current_folder
+            and not self._is_known_folder_alias(metadata.get("target_name", ""))
+        ):
+            metadata["target_name"] = self._resolve_relative_path_target(
+                metadata.get("target_name", ""),
+                base_dir=current_folder,
+            )
 
         if intent.intent_type is IntentType.RENAME_PATH:
             if metadata.get("use_active_file_context") == "true":
@@ -657,6 +668,13 @@ class AvaController:
             ):
                 metadata["source_name"] = filesystem.last_folder_path
                 metadata["path_kind"] = "folder"
+            if current_folder and not self._is_known_folder_alias(
+                metadata.get("destination_name", "")
+            ):
+                metadata["destination_name"] = self._resolve_relative_path_target(
+                    metadata.get("destination_name", ""),
+                    base_dir=current_folder,
+                )
 
         if intent.intent_type in {IntentType.CLOSE_APP, IntentType.FOCUS_APP}:
             if metadata.get("use_active_app_context") == "true" and app_context.app_name:
@@ -784,6 +802,26 @@ class AvaController:
         if "." not in Path(cleaned).name and source_suffix:
             return f"{cleaned}{source_suffix}"
         return cleaned
+
+    @classmethod
+    def _resolve_relative_path_target(cls, target_name: str, *, base_dir: str) -> str:
+        cleaned = target_name.strip().strip("\"'")
+        if not cleaned:
+            return cleaned
+        candidate = Path(cleaned)
+        if candidate.is_absolute() or cls._is_known_folder_alias(cleaned):
+            return cleaned
+        return str(Path(base_dir) / candidate)
+
+    @classmethod
+    def _is_known_folder_alias(cls, target_name: str) -> bool:
+        lowered = target_name.strip().strip("\"'").lower()
+        if not lowered:
+            return False
+        aliases = set(IntentRouter.KNOWN_FOLDER_ALIASES) | set(
+            IntentRouter.KNOWN_FOLDER_ALIASES.values()
+        )
+        return lowered in aliases
 
     @staticmethod
     def _looks_like_youtube_retry(normalized_text: str, context: BrowserTaskContext) -> bool:

@@ -25,11 +25,17 @@ class IntentRouter:
         (r"\bdo\s*cu\s*ment\s*s\b", "documents"),
         (r"\bdown\s*loads\b", "downloads"),
         (r"\bdown\s*load\s*s\b", "downloads"),
+        (r"\bava[\s-]*test\b", "ava-test"),
         (r"\bdesk\s*top\b", "desktop"),
         (r"\bdes\s*ktop\b", "desktop"),
         (r"\bpa\s*int\b", "paint"),
         (r"\bfo\s*lder\b", "folder"),
+        (r"\bfo\s*ld(?:er)?\b", "folder"),
         (r"\bfi\s*le\b", "file"),
+        (r"\bpha\s*se\b", "phase"),
+        (r"\ban\s+while\b", "new file"),
+        (r"\bnew\s+while\b", "new file"),
+        (r"\bnew\s+fall\b", "new file"),
         (r"\bis\s*up\b", "is app"),
         (r"\byou\s*tu\s*be\b", "youtube"),
         (r"\bne\s*xt\b", "next"),
@@ -51,6 +57,12 @@ class IntentRouter:
         (r"\bwin\s*dow\b", "window"),
         (r"\bwi\s*ndow\b", "window"),
         (r"\bfo\s*cus\b", "focus"),
+        (r"\bmo\s*ve\b", "move"),
+        (r"\bbad\s*lo\b", "badlo"),
+        (r"\bbad\s*low\b", "badlo"),
+        (r"\bar\s*chi\s*ve\b", "archive"),
+        (r"\bhaan\s*ji\b", "haan"),
+        (r"\bhan\b", "haan"),
         (r"\bca\s*ro\b", "karo"),
         (r"\bco\s*ro\b", "karo"),
         (r"\bpar\s+jo\b", "par jao"),
@@ -58,7 +70,7 @@ class IntentRouter:
         (r"\bholo\b", "kholo"),
     )
     CANCEL_TOKENS: Final = ("stop ava", "cancel", "bas", "ruk ja", "stop")
-    CONFIRM_TOKENS: Final = ("haan", "yes", "confirm", "kar do", "theek hai")
+    CONFIRM_TOKENS: Final = ("haan", "haan ji", "yes", "confirm", "kar do", "theek hai")
     DENY_TOKENS: Final = ("nahi", "no", "mat karo", "cancel it")
     MUTE_TOKENS: Final = ("mute", "chup", "be quiet")
     UNMUTE_TOKENS: Final = ("unmute", "speak", "bol")
@@ -576,6 +588,16 @@ class IntentRouter:
                     metadata={"target_name": folder_key},
                 )
 
+        generic_target = self._extract_bare_open_target(raw_text, normalized)
+        if generic_target is not None:
+            return ParsedIntent(
+                IntentType.OPEN_FOLDER,
+                raw_text,
+                normalized,
+                source=source,
+                metadata={"target_name": generic_target},
+            )
+
         return None
 
     def _parse_app_intent_open(
@@ -677,7 +699,9 @@ class IntentRouter:
         normalized: str,
         source: str,
     ) -> ParsedIntent | None:
-        if not any(token in normalized for token in ("naam badal", "naam change", "rename")):
+        if not any(
+            token in normalized for token in ("naam badal", "naam change", "rename", "badlo")
+        ):
             return None
         target_kind = ""
         if "is file" in normalized:
@@ -708,10 +732,7 @@ class IntentRouter:
         normalized: str,
         source: str,
     ) -> ParsedIntent | None:
-        if not (
-            normalized.startswith("move ")
-            or any(token in normalized for token in (" move ", " shift", "le ja", "bhej"))
-        ):
+        if re.search(r"(?i)\b(?:move|shift|le ja|bhej)\b", normalized) is None:
             return None
         target_kind = ""
         if "is file" in normalized:
@@ -833,19 +854,54 @@ class IntentRouter:
         return None
 
     @classmethod
+    def _extract_bare_open_target(cls, raw_text: str, normalized: str) -> str | None:
+        patterns = (
+            r"(?i)^\s*(.+?)\s+(?:khol(?:o)?|open|show|go to)\s*$",
+            r"(?i)^(?:open|show|go to)\s+(.+?)\s*$",
+        )
+        for text in (raw_text, normalized):
+            for pattern in patterns:
+                match = re.search(pattern, text)
+                if match is None:
+                    continue
+                candidate = cls._clean_spoken_target(match.group(1))
+                if not candidate:
+                    continue
+                lowered = candidate.lower()
+                if "://" in lowered or re.search(r"\b[a-z0-9-]+\.[a-z]{2,}(?:/\S*)?\b", lowered):
+                    return None
+                if lowered in {"browser", "website", "tab", "page", "address bar"}:
+                    return None
+                if lowered in cls.APP_ALIASES or lowered in cls.WEBSITE_ALIASES:
+                    return None
+                if lowered in cls.KNOWN_FOLDER_ALIASES:
+                    return lowered
+                if any(
+                    alias in lowered
+                    for alias in (
+                        *cls.APP_ALIASES.keys(),
+                        *cls.WEBSITE_ALIASES.keys(),
+                    )
+                ):
+                    return None
+                return candidate
+        return None
+
+    @classmethod
     def _extract_contextual_new_name(cls, raw_text: str, normalized: str) -> str | None:
         patterns = (
             (
                 r"(?i)is\s+(?:file|folder)\s+ka\s+naam\s+"
                 r"(?:badlo|badal do|change karo|rename karo)\s+(.+)$"
             ),
+            r"(?i)is\s+(?:file|folder)\s+(?:badlo|badal do|change karo|rename karo)\s+(.+)$",
             r"(?i)rename\s+(?:this|is)\s+(?:file|folder)\s+to\s+(.+)$",
         )
         for text in (raw_text, normalized):
             for pattern in patterns:
                 match = re.search(pattern, text)
                 if match:
-                    candidate = cls._clean_spoken_target(match.group(1))
+                    candidate = cls._clean_spoken_name(match.group(1))
                     if candidate:
                         return candidate
         return None
@@ -888,9 +944,18 @@ class IntentRouter:
         cleaned = " ".join(cleaned.split()).strip(" .-:")
         return cleaned
 
+    @staticmethod
+    def _clean_spoken_name(text: str) -> str:
+        cleaned = re.sub(r"(?i)\b(please|abhi|yahan)\b", "", text)
+        cleaned = " ".join(cleaned.split()).strip(" .-:")
+        return cleaned
+
     @classmethod
     def _normalize_text(cls, raw_text: str) -> str:
         normalized = " ".join(raw_text.lower().split())
+        normalized = re.sub(r"<[^>]+>", " ", normalized)
+        normalized = re.sub(r"\[[^\]]+\]", " ", normalized)
+        normalized = " ".join(normalized.split())
         for pattern, replacement in cls.NORMALIZATION_REPLACEMENTS:
             normalized = re.sub(pattern, replacement, normalized)
         normalized = re.sub(r"\b([a-z0-9-]+)\s+dot\s+([a-z]{2,})(?=\b)", r"\1.\2", normalized)

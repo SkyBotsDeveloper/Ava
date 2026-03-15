@@ -18,6 +18,7 @@ class SpokenInterpretation:
     needs_confirmation: bool = False
     confirmation_prompt: str | None = None
     browser_like: bool = False
+    local_command_like: bool = False
 
 
 class SpokenCommandNormalizer:
@@ -76,10 +77,16 @@ class SpokenCommandNormalizer:
         (r"\bdown\s*load\s*s\b", "downloads"),
         (r"\bdocu\s*ments\b", "documents"),
         (r"\bdo\s*cu\s*ment\s*s\b", "documents"),
+        (r"\bava[\s-]*test\b", "ava-test"),
         (r"\bdesk\s*top\b", "desktop"),
         (r"\bdes\s*ktop\b", "desktop"),
         (r"\bfo\s*lder\b", "folder"),
+        (r"\bfo\s*ld(?:er)?\b", "folder"),
         (r"\bfi\s*le\b", "file"),
+        (r"\bpha\s*se\b", "phase"),
+        (r"\ban\s+while\b", "new file"),
+        (r"\bnew\s+while\b", "new file"),
+        (r"\bnew\s+fall\b", "new file"),
         (r"\bis\s*up\b", "is app"),
         (r"\bmini\s*mize\b", "minimize"),
         (r"\bmin\s*imi\s*ze\b", "minimize"),
@@ -88,6 +95,12 @@ class SpokenCommandNormalizer:
         (r"\bwin\s*dow\b", "window"),
         (r"\bwi\s*ndow\b", "window"),
         (r"\bfo\s*cus\b", "focus"),
+        (r"\bmo\s*ve\b", "move"),
+        (r"\bbad\s*lo\b", "badlo"),
+        (r"\bbad\s*low\b", "badlo"),
+        (r"\bar\s*chi\s*ve\b", "archive"),
+        (r"\bhaan\s*ji\b", "haan"),
+        (r"\bhan\b", "haan"),
         (r"\bca\s*ro\b", "karo"),
         (r"\bco\s*ro\b", "karo"),
         (r"\bcolo\b", "kholo"),
@@ -136,6 +149,11 @@ class SpokenCommandNormalizer:
         r"\.(?:com|org|in|net|io|ai|app|dev)\b",
         r"\bdot\s+(?:com|org|in|net|io|ai|app|dev)\b",
     )
+    LOCAL_COMMAND_HINT_PATTERNS: ClassVar[tuple[str, ...]] = (
+        r"\b(?:file|folder|rename|move|naam|desktop|downloads|documents)\b",
+        r"\b(?:notepad|calculator|paint|window|focus|minimize|maximize)\b",
+        r"\b(?:banao|badlo|karo|band|kholo|create|open|close)\b",
+    )
     MODEL_DOMAIN_HINTS: ClassVar[dict[str, str]] = {
         "github": "github.com kholo",
         "youtube": "youtube kholo",
@@ -152,8 +170,12 @@ class SpokenCommandNormalizer:
             raw_text,
             normalized_text,
         )
+        normalized_text = self._promote_contextual_filesystem_command(normalized_text)
         normalized_text = self._promote_bare_open_target(normalized_text)
         browser_like = self.looks_browser_like(raw_text) or self.looks_browser_like(normalized_text)
+        local_command_like = self.looks_local_command_like(
+            raw_text
+        ) or self.looks_local_command_like(normalized_text)
         intent = intent_router.parse(normalized_text, source="voice")
         normalized_text, intent, domain_was_corrected = self._canonicalize_website_intent(
             normalized_text,
@@ -166,6 +188,7 @@ class SpokenCommandNormalizer:
                 normalized_text=normalized_text,
                 intent=intent,
                 browser_like=browser_like,
+                local_command_like=local_command_like,
             )
 
         confirmation_prompt = self._build_confirmation_prompt(
@@ -181,6 +204,7 @@ class SpokenCommandNormalizer:
             needs_confirmation=confirmation_prompt is not None,
             confirmation_prompt=confirmation_prompt,
             browser_like=browser_like,
+            local_command_like=local_command_like,
         )
 
     def recover_browser_command(
@@ -226,6 +250,7 @@ class SpokenCommandNormalizer:
                 needs_confirmation=prompt is not None,
                 confirmation_prompt=prompt,
                 browser_like=True,
+                local_command_like=True,
             )
 
         for hint, normalized_command in self.MODEL_DOMAIN_HINTS.items():
@@ -243,6 +268,7 @@ class SpokenCommandNormalizer:
                 needs_confirmation=prompt is not None,
                 confirmation_prompt=prompt,
                 browser_like=True,
+                local_command_like=True,
             )
         return None
 
@@ -268,6 +294,10 @@ class SpokenCommandNormalizer:
             return True
         normalized = self._normalize_text(text)
         return any(re.search(pattern, normalized) for pattern in self.BROWSER_HINT_PATTERNS)
+
+    def looks_local_command_like(self, text: str) -> bool:
+        normalized = self._normalize_text(text)
+        return any(re.search(pattern, normalized) for pattern in self.LOCAL_COMMAND_HINT_PATTERNS)
 
     @staticmethod
     def _looks_like_youtube_search(normalized_raw: str, normalized_model: str) -> bool:
@@ -299,6 +329,9 @@ class SpokenCommandNormalizer:
 
     def _normalize_text(self, raw_text: str) -> str:
         normalized = " ".join(raw_text.lower().split())
+        normalized = re.sub(r"<[^>]+>", " ", normalized)
+        normalized = re.sub(r"\[[^\]]+\]", " ", normalized)
+        normalized = " ".join(normalized.split())
         for pattern, replacement in self.WORD_REPLACEMENTS:
             normalized = re.sub(pattern, replacement, normalized)
         normalized = re.sub(
@@ -347,6 +380,38 @@ class SpokenCommandNormalizer:
             if query:
                 return f"youtube par {query} playlist chalao"
 
+        return normalized_text
+
+    @staticmethod
+    def _promote_contextual_filesystem_command(normalized_text: str) -> str:
+        stripped = normalized_text.strip(" .!?")
+        if re.fullmatch(r"is folder me (?:new|nu) file", stripped):
+            return "is folder me new file banao"
+        if re.fullmatch(r"is folder me (?:new|nu) folder", stripped):
+            return "is folder me new folder banao"
+        for target_kind in ("file", "folder"):
+            match = re.fullmatch(rf"is {target_kind} (.+)", stripped)
+            if match is None:
+                continue
+            remainder = match.group(1).strip()
+            if not remainder:
+                continue
+            if any(
+                token in remainder
+                for token in (
+                    "badlo",
+                    "rename",
+                    "move",
+                    "banao",
+                    "new ",
+                    "new file",
+                    "new folder",
+                    "khol",
+                    "open",
+                )
+            ):
+                continue
+            return f"is {target_kind} badlo {remainder}"
         return normalized_text
 
     def _build_confirmation_prompt(

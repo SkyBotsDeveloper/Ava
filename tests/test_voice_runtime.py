@@ -792,3 +792,42 @@ def test_voice_runtime_intercepts_complaint_retry_with_stored_query_context(tmp_
     asyncio.run(scenario())
 
     assert controller.calls == [("sirf YouTube khola hai", "voice")]
+
+
+def test_voice_runtime_suppresses_local_command_chat_fallback(tmp_path) -> None:
+    settings = Settings(_env_file=None, gemini_api_key="test-key")
+    state = AssistantState()
+    journal = _build_journal(tmp_path)
+    live_client = FakeLiveClient(
+        receive_events=[
+            TranscriptEvent(text="is fo lder me nu file", is_input=True, is_final=False),
+            TranscriptEvent(
+                text="Sure, file bana di.",
+                is_input=False,
+                is_final=False,
+            ),
+            TurnBoundaryEvent(phase="turn_complete", reason="stop"),
+        ]
+    )
+    audio_gateway = FakeAudioGateway(played_chunks=[])
+    controller = FakeVoiceCommandController(state)
+    runtime = VoiceRuntime(
+        settings=settings,
+        state=state,
+        journal=journal,
+        live_client=live_client,
+        audio_gateway=audio_gateway,
+        command_controller=controller,
+    )
+
+    async def scenario() -> None:
+        await runtime.begin_manual_capture()
+        await runtime.end_manual_capture()
+        receive_task = runtime._receive_task
+        assert receive_task is not None
+        await receive_task
+
+    asyncio.run(scenario())
+
+    assert controller.calls == [("is folder me new file banao", "voice")]
+    assert state.last_response == "Browser khol diya."
