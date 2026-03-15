@@ -86,6 +86,17 @@ def test_youtube_search_intent_detected() -> None:
 
     assert intent.intent_type is IntentType.SEARCH_YOUTUBE
     assert intent.metadata["query"] == "lofi hip hop playlist"
+    assert intent.metadata["compound_open_first"] == "true"
+
+
+def test_compound_youtube_open_and_search_intent_detected() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("YouTube kholo aur lofi hip hop playlist search karo")
+
+    assert intent.intent_type is IntentType.SEARCH_YOUTUBE
+    assert intent.metadata["query"] == "lofi hip hop playlist"
+    assert intent.metadata["compound_open_first"] == "true"
 
 
 def test_instagram_login_intent_detected() -> None:

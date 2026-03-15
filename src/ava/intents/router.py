@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import re
 from typing import Final
 
 from ava.intents.models import IntentType, ParsedIntent
+
+logger = logging.getLogger(__name__)
 
 
 class IntentRouter:
@@ -244,7 +247,11 @@ class IntentRouter:
                     raw_text,
                     normalized,
                     source=source,
-                    metadata={"query": query},
+                    metadata={
+                        "query": query,
+                        "compound_open_first": "true",
+                        "compound_action": "open_youtube_then_play_playlist",
+                    },
                 )
         if any(token in normalized for token in ("khol", "open", "launch")):
             return ParsedIntent(IntentType.OPEN_YOUTUBE, raw_text, normalized, source=source)
@@ -265,12 +272,33 @@ class IntentRouter:
         )
         if not query:
             return None
+        logger.info(
+            "Compound browser intent detected",
+            extra={
+                "event": "compound_browser_intent_detected",
+                "raw_command": raw_text,
+                "normalized_command": normalized,
+                "intent_type": IntentType.SEARCH_YOUTUBE.value,
+            },
+        )
+        logger.info(
+            "Extracted YouTube search query",
+            extra={
+                "event": "youtube_search_query_extracted",
+                "raw_command": raw_text,
+                "query": query,
+            },
+        )
         return ParsedIntent(
             IntentType.SEARCH_YOUTUBE,
             raw_text,
             normalized,
             source=source,
-            metadata={"query": query},
+            metadata={
+                "query": query,
+                "compound_open_first": "true",
+                "compound_action": "open_youtube_then_search",
+            },
         )
 
     def _parse_instagram_login(
@@ -553,7 +581,7 @@ class IntentRouter:
         if quoted:
             return quoted[0]
         cleaned = re.sub(
-            r"(?i)\b(ava|youtube|playlist|play|chalao|par|pa|on|please)\b",
+            r"(?i)\b(ava|youtube|playlist|play|chalao|chala|par|pa|on|please|open|launch|kholo|aur|and)\b",
             "",
             raw_text,
         )
@@ -565,8 +593,23 @@ class IntentRouter:
         quoted = cls._extract_quoted_names(raw_text)
         if quoted:
             return quoted[0]
+        reverse_match = re.search(
+            r"(?i)youtube(?:\s+(?:par|pa|pe|mein|me|kholo|open|launch))?(?:\s+(?:aur|and))?\s+(.+?)\s+(?:search|find|dhundo)\b",
+            raw_text,
+        )
+        if reverse_match:
+            candidate = reverse_match.group(1).strip(" .")
+            candidate = re.sub(r"(?i)\b(kholo|open|launch|aur|and)\b", "", candidate)
+            candidate = " ".join(candidate.split()).strip(" -:")
+            if candidate:
+                return candidate
         cleaned = re.sub(
-            r"(?i)\b(ava|youtube|search|find|dhundo|karo|please|par|pa|on)\b",
+            (
+                r"(?i)\b("
+                r"ava|youtube|search|find|dhundo|karo|please|par|pa|on|open|launch|"
+                r"kholo|aur|and|khul|gaya|hui|hua|nahi|but|woh|wala"
+                r")\b"
+            ),
             "",
             raw_text,
         )

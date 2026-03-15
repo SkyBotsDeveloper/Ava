@@ -187,9 +187,32 @@ class BrowserController:
     def open_youtube(self) -> BrowserPageState:
         return self.open_url("https://www.youtube.com")
 
-    def search_youtube(self, search_query: str) -> BrowserPageState:
-        page = self.open_url(
-            f"https://www.youtube.com/results?search_query={quote_plus(search_query)}"
+    def search_youtube(
+        self,
+        search_query: str,
+        *,
+        open_first: bool = False,
+    ) -> tuple[BrowserPageState, dict[str, str | bool]]:
+        if open_first:
+            open_page = self.open_youtube()
+            logger.info(
+                "Executed YouTube open step before search",
+                extra={
+                    "event": "youtube_open_step_executed",
+                    "query": search_query,
+                    "page_title": open_page.title,
+                    "page_url": open_page.url,
+                    "browser_name": open_page.browser_name,
+                    "isolated": open_page.isolated,
+                },
+            )
+
+        target_url = f"https://www.youtube.com/results?search_query={quote_plus(search_query)}"
+        page = self.open_url(target_url)
+        verification = self._verify_youtube_search_result(
+            page=page,
+            query=search_query,
+            target_url=target_url,
         )
         logger.info(
             "Submitted YouTube search in browser",
@@ -200,6 +223,7 @@ class BrowserController:
                 "final_url": page.url,
                 "browser_name": page.browser_name,
                 "isolated": page.isolated,
+                **verification,
             },
         )
         logger.info(
@@ -211,9 +235,10 @@ class BrowserController:
                 "final_url": page.url,
                 "browser_name": page.browser_name,
                 "isolated": page.isolated,
+                **verification,
             },
         )
-        return page
+        return page, verification
 
     def play_youtube_playlist(self, search_query: str) -> PlaybackResult:
         plan = self.resolve_browser_plan()
@@ -337,3 +362,40 @@ class BrowserController:
         if playlist_ids:
             return f"https://www.youtube.com/playlist?list={playlist_ids[0]}"
         return None
+
+    @staticmethod
+    def _verify_youtube_search_result(
+        *,
+        page: BrowserPageState,
+        query: str,
+        target_url: str,
+    ) -> dict[str, str | bool]:
+        final_url = page.url.lower()
+        final_title = page.title.lower()
+        expected_query = quote_plus(query).lower()
+        results_url_observed = "youtube.com/results" in final_url and expected_query in final_url
+        query_box_value_observed = False
+        visible_results_state_observed = "youtube" in final_title and (
+            "results" in final_title or results_url_observed
+        )
+        expected_page_transition_confirmed = results_url_observed or final_url.rstrip(
+            "/"
+        ) == target_url.lower().rstrip("/")
+        verified_via = [
+            name
+            for name, enabled in (
+                ("results_url_observed", results_url_observed),
+                ("query_box_value_observed", query_box_value_observed),
+                ("visible_results_state_observed", visible_results_state_observed),
+                ("expected_page_transition_confirmed", expected_page_transition_confirmed),
+            )
+            if enabled
+        ]
+        return {
+            "results_url_observed": results_url_observed,
+            "query_box_value_observed": query_box_value_observed,
+            "visible_results_state_observed": visible_results_state_observed,
+            "expected_page_transition_confirmed": expected_page_transition_confirmed,
+            "action_verified": bool(verified_via),
+            "verified_via": ",".join(verified_via),
+        }

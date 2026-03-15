@@ -92,6 +92,14 @@ def _now():
     return dt.datetime.now(dt.UTC)
 
 
+def _confirmation_wav_path(voice_dir: Path) -> Path:
+    for candidate in ("confirm.wav", "haan_confirm.wav", "haan.wav", "yes.wav"):
+        wav_path = voice_dir / candidate
+        if wav_path.exists():
+            return wav_path
+    raise FileNotFoundError("No spoken confirmation WAV found in voice dir.")
+
+
 def _row_dict(row: JournalRow) -> dict[str, object]:
     return {
         "id": row.id,
@@ -142,6 +150,17 @@ async def _wait_for_clarification(runtime: VoiceRuntime, *, timeout: float = 40.
     return await _wait_for(_snapshot, timeout=timeout)
 
 
+async def _wait_for_generation_complete(
+    runtime: VoiceRuntime,
+    *,
+    timeout: float = 12.0,
+) -> bool:
+    def _snapshot() -> bool:
+        return bool(runtime._generation_complete_received)
+
+    return bool(await _wait_for(_snapshot, timeout=timeout))
+
+
 async def _wait_for_new_voice_row(
     journal_rows_fn,
     *,
@@ -181,14 +200,12 @@ async def _verify_github(
     )
 
     before_ids = {row.id for row in journal_rows_fn()}
-    confirmation_wav = voice_dir / "haan.wav"
-    if not confirmation_wav.exists():
-        confirmation_wav = voice_dir / "yes.wav"
+    await _wait_for_generation_complete(runtime)
     await _speak_turn(
         runtime,
         audio_gateway,
-        confirmation_wav,
-        pre_delay_seconds=1.5,
+        _confirmation_wav_path(voice_dir),
+        pre_delay_seconds=1.0,
     )
     row = await _wait_for_new_voice_row(
         journal_rows_fn,
@@ -210,11 +227,12 @@ async def _verify_youtube_search(
     *,
     voice_dir: Path,
     journal_rows_fn,
+    wav_name: str = "youtube_search.wav",
 ) -> dict[str, object]:
     result: dict[str, object] = {}
     before_ids = {row.id for row in journal_rows_fn()}
 
-    await _speak_turn(runtime, audio_gateway, voice_dir / "youtube_search.wav")
+    await _speak_turn(runtime, audio_gateway, voice_dir / wav_name)
 
     def _first_outcome() -> TurnOutcome | None:
         clarification = None
@@ -245,14 +263,12 @@ async def _verify_youtube_search(
 
     if first_outcome is not None and first_outcome.clarification:
         before_ids = {row.id for row in journal_rows_fn()}
-        confirmation_wav = voice_dir / "haan.wav"
-        if not confirmation_wav.exists():
-            confirmation_wav = voice_dir / "yes.wav"
+        await _wait_for_generation_complete(runtime)
         await _speak_turn(
             runtime,
             audio_gateway,
-            confirmation_wav,
-            pre_delay_seconds=1.5,
+            _confirmation_wav_path(voice_dir),
+            pre_delay_seconds=1.0,
         )
         row = await _wait_for_new_voice_row(
             journal_rows_fn,
@@ -348,6 +364,14 @@ async def _run_scenario(
                 voice_dir=voice_dir,
                 journal_rows_fn=journal_rows_fn,
             )
+        elif scenario == "youtube-open-search":
+            result = await _verify_youtube_search(
+                runtime,
+                audio_gateway,
+                voice_dir=voice_dir,
+                journal_rows_fn=journal_rows_fn,
+                wav_name="youtube_open_and_search.wav",
+            )
         else:
             result = await _verify_youtube_followup_retry(
                 runtime,
@@ -377,7 +401,7 @@ async def main() -> None:
     )
     parser.add_argument(
         "--scenario",
-        choices=("github", "youtube", "youtube-followup", "both"),
+        choices=("github", "youtube", "youtube-open-search", "youtube-followup", "both"),
         default="both",
     )
     args = parser.parse_args()
@@ -387,6 +411,11 @@ async def main() -> None:
         payload["github"] = await _run_scenario(voice_dir=args.voice_dir, scenario="github")
     if args.scenario in {"youtube", "both"}:
         payload["youtube"] = await _run_scenario(voice_dir=args.voice_dir, scenario="youtube")
+    if args.scenario in {"youtube-open-search", "both"}:
+        payload["youtube_open_search"] = await _run_scenario(
+            voice_dir=args.voice_dir,
+            scenario="youtube-open-search",
+        )
     if args.scenario in {"youtube-followup", "both"}:
         payload["youtube_followup"] = await _run_scenario(
             voice_dir=args.voice_dir,

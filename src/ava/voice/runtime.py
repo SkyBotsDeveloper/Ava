@@ -492,13 +492,25 @@ class VoiceRuntime:
                 )
                 self._detect_voice_command_candidate(final_chunk=event.is_final)
         else:
-            if self._suppress_model_output and not self._command_feedback_in_progress:
-                return
             if event.text:
                 self._output_transcript = self._merge_transcript(
                     self._output_transcript,
                     event.text,
                 )
+                if self._browser_command_priority_active and not self._command_feedback_in_progress:
+                    if self._try_recover_browser_command_from_model_output():
+                        self._notify_state()
+                        return
+                    logger.info(
+                        "Suppressed conversational model output during browser-priority turn",
+                        extra={
+                            "event": "browser_priority_model_output_suppressed",
+                            "transcript": self._output_transcript,
+                        },
+                    )
+                    return
+                if self._suppress_model_output and not self._command_feedback_in_progress:
+                    return
                 if self._try_recover_browser_command_from_model_output():
                     self._notify_state()
                     return
@@ -564,6 +576,23 @@ class VoiceRuntime:
         ):
             self._state.status = AssistantStatus.IDLE
             self._notify_state()
+            return
+        if (
+            event.phase in {"turn_complete", "waiting_for_input"}
+            and self._browser_command_priority_active
+            and not self._pending_voice_command_text
+            and self._pending_spoken_interpretation is None
+        ):
+            self._state.last_response = "Browser command clear nahi tha. Dobara short me bolo."
+            logger.info(
+                "Browser command needs clarification after turn end",
+                extra={
+                    "event": "browser_command_clarification_required",
+                    "input_transcript": self._input_transcript,
+                    "output_transcript": self._output_transcript,
+                },
+            )
+            await self._finish_model_turn()
             return
         if event.phase == "generation_complete":
             self._generation_complete_received = True
@@ -727,6 +756,16 @@ class VoiceRuntime:
                     "query": follow_up_candidate.metadata.get("query", ""),
                 },
             )
+            return
+        if (
+            interpretation.intent.intent_type
+            in {
+                IntentType.SEARCH_PAGE,
+                IntentType.SEARCH_YOUTUBE,
+                IntentType.PLAY_YOUTUBE_PLAYLIST,
+            }
+            and not final_chunk
+        ):
             return
         if interpretation.intent.intent_type is IntentType.GENERAL_COMMAND:
             return

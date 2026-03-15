@@ -122,6 +122,10 @@ class SpokenCommandNormalizer:
 
     def interpret(self, raw_text: str, *, intent_router: IntentRouter) -> SpokenInterpretation:
         normalized_text = self._normalize_text(raw_text)
+        normalized_text = self._promote_compound_browser_command(
+            raw_text,
+            normalized_text,
+        )
         browser_like = self.looks_browser_like(raw_text) or self.looks_browser_like(normalized_text)
         intent = intent_router.parse(normalized_text, source="voice")
         normalized_text, intent, domain_was_corrected = self._canonicalize_website_intent(
@@ -282,6 +286,27 @@ class SpokenCommandNormalizer:
             return "whatsapp web kholo"
 
         return normalized
+
+    @staticmethod
+    def _promote_compound_browser_command(raw_text: str, normalized_text: str) -> str:
+        if "youtube" not in normalized_text:
+            return normalized_text
+
+        if any(token in normalized_text for token in ("search", "find", "dhundo")):
+            query = IntentRouter._extract_youtube_search_query(  # type: ignore[attr-defined]
+                normalized_text
+            ) or IntentRouter._extract_youtube_search_query(raw_text)
+            if query:
+                return f"youtube par {query} search karo"
+
+        if any(token in normalized_text for token in ("playlist", "play", "chalao", "chala")):
+            query = IntentRouter._extract_playlist_query(  # type: ignore[attr-defined]
+                normalized_text
+            ) or IntentRouter._extract_playlist_query(raw_text)
+            if query:
+                return f"youtube par {query} playlist chalao"
+
+        return normalized_text
 
     def _build_confirmation_prompt(
         self,

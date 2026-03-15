@@ -223,6 +223,27 @@ class AvaController:
         intent: ParsedIntent,
         confirmation_status: ConfirmationStatus,
     ) -> CommandResult:
+        if (
+            intent.intent_type is IntentType.SEARCH_YOUTUBE
+            and intent.metadata.get("compound_open_first", "").lower() == "true"
+        ):
+            logger.info(
+                "Compound browser intent detected",
+                extra={
+                    "event": "compound_browser_intent_detected",
+                    "raw_command": command_text,
+                    "normalized_command": intent.normalized_text,
+                    "intent_type": intent.intent_type.value,
+                },
+            )
+            logger.info(
+                "Extracted YouTube search query",
+                extra={
+                    "event": "youtube_search_query_extracted",
+                    "raw_command": command_text,
+                    "query": intent.metadata.get("query", ""),
+                },
+            )
         self.state.status = AssistantStatus.THINKING
         try:
             result = self.executor.execute(
@@ -245,6 +266,16 @@ class AvaController:
         self.state.status = AssistantStatus.IDLE
         self.state.last_response = result.detail
         self._sync_browser_task_context(intent=intent, result=result)
+        if result.success and bool((result.data or {}).get("action_verified")):
+            logger.info(
+                "Generated verified action acknowledgment",
+                extra={
+                    "event": "action_verified_ack_generated",
+                    "action_name": result.action_name,
+                    "response_text": result.detail,
+                    "verified_via": (result.data or {}).get("verified_via", ""),
+                },
+            )
         self._record_journal(
             command_text=command_text,
             action_name=result.action_name,
@@ -309,6 +340,8 @@ class AvaController:
                     "query": context.query,
                     "follow_up_reason": "retry_youtube_search",
                     "context_task_kind": context.task_kind,
+                    "compound_open_first": "true",
+                    "compound_action": "open_youtube_then_search",
                 },
             )
 
@@ -332,6 +365,8 @@ class AvaController:
                     "query": context.query,
                     "follow_up_reason": "retry_youtube_playlist",
                     "context_task_kind": context.task_kind,
+                    "compound_open_first": "true",
+                    "compound_action": "open_youtube_then_play_playlist",
                 },
             )
 

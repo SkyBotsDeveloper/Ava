@@ -504,6 +504,44 @@ def test_voice_runtime_waits_for_turn_end_before_query_confirmation(tmp_path) ->
     assert state.last_response == "Ye search query `lofi hip hop playlist` sahi hai na?"
 
 
+def test_voice_runtime_keeps_compound_youtube_phrase_on_search_path(tmp_path) -> None:
+    settings = Settings(_env_file=None, gemini_api_key="test-key")
+    state = AssistantState()
+    journal = _build_journal(tmp_path)
+    live_client = FakeLiveClient(
+        receive_events=[
+            TranscriptEvent(
+                text="YouTube kholo aur lofi hip hop playlist search karo",
+                is_input=True,
+                is_final=False,
+            ),
+            TurnBoundaryEvent(phase="turn_complete", reason="stop"),
+        ]
+    )
+    audio_gateway = FakeAudioGateway(played_chunks=[])
+    controller = FakeVoiceCommandController(state)
+    runtime = VoiceRuntime(
+        settings=settings,
+        state=state,
+        journal=journal,
+        live_client=live_client,
+        audio_gateway=audio_gateway,
+        command_controller=controller,
+    )
+
+    async def scenario() -> None:
+        await runtime.begin_manual_capture()
+        await runtime.end_manual_capture()
+        receive_task = runtime._receive_task
+        assert receive_task is not None
+        await receive_task
+
+    asyncio.run(scenario())
+
+    assert controller.calls == [("youtube par lofi hip hop playlist search karo", "voice")]
+    assert state.last_response == "Browser khol diya."
+
+
 def test_voice_runtime_repairs_observed_youtube_query_collapse(tmp_path) -> None:
     settings = Settings(_env_file=None, gemini_api_key="test-key")
     state = AssistantState()

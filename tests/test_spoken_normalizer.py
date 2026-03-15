@@ -40,6 +40,21 @@ def test_spoken_normalizer_requests_confirmation_for_long_search_query() -> None
     )
 
 
+def test_spoken_normalizer_preserves_compound_youtube_open_and_search_phrase() -> None:
+    normalizer = SpokenCommandNormalizer()
+
+    interpretation = normalizer.interpret(
+        "YouTube kholo aur lofi hip hop playlist search karo",
+        intent_router=IntentRouter(),
+    )
+
+    assert interpretation.normalized_text == "youtube par lofi hip hop playlist search karo"
+    assert interpretation.intent.intent_type is IntentType.SEARCH_YOUTUBE
+    assert interpretation.intent.metadata["query"] == "lofi hip hop playlist"
+    assert interpretation.intent.metadata["compound_open_first"] == "true"
+    assert interpretation.needs_confirmation is False
+
+
 def test_spoken_normalizer_suggests_known_domain_for_ambiguous_domain() -> None:
     normalizer = SpokenCommandNormalizer()
 

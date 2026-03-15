@@ -215,12 +215,27 @@ class ActionExecutor:
             )
 
         if intent.intent_type is IntentType.SEARCH_YOUTUBE:
-            page = self.browser_controller.search_youtube(intent.metadata["query"])
+            open_first = intent.metadata.get("compound_open_first", "").lower() == "true"
+            page, verification = self.browser_controller.search_youtube(
+                intent.metadata["query"],
+                open_first=open_first,
+            )
+            result_data = page.as_dict() | {"query": intent.metadata["query"]} | verification
+            if not bool(verification.get("action_verified")):
+                return ExecutionResult(
+                    action_name="search_youtube",
+                    success=False,
+                    detail=(
+                        "YouTube khul gaya, lekin "
+                        f"`{intent.metadata['query']}` search verify nahi hua."
+                    ),
+                    data=result_data,
+                )
             return ExecutionResult(
                 action_name="search_youtube",
                 success=True,
                 detail=f"YouTube par `{intent.metadata['query']}` search kar diya.",
-                data=page.as_dict() | {"query": intent.metadata["query"]},
+                data=result_data,
             )
 
         if intent.intent_type is IntentType.PLAY_YOUTUBE_PLAYLIST:
