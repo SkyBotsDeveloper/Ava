@@ -311,6 +311,71 @@ def test_controller_routes_youtube_search_into_isolated_session(tmp_path: Path) 
     assert result.response_text == "YouTube par `lofi hip hop playlist` search kar diya."
 
 
+def test_controller_retries_youtube_search_from_sticky_browser_context(tmp_path: Path) -> None:
+    fake_sacrificial = FakeSacrificialBrowserController()
+    controller = _build_controller(
+        tmp_path,
+        browser_command_mode="isolated",
+        sacrificial_controller=fake_sacrificial,
+    )
+
+    controller.handle_text_command("YouTube par lofi hip hop playlist search karo")
+    result = controller.handle_text_command("dobara search karo", source="voice")
+
+    assert result.response_text == "YouTube par `lofi hip hop playlist` search kar diya."
+    assert controller.state.active_browser_task is not None
+    assert controller.state.active_browser_task.query == "lofi hip hop playlist"
+    assert fake_sacrificial.current_page.url.endswith("search_query=lofi+hip+hop+playlist")
+
+
+def test_controller_recovers_search_nahi_hui_from_sticky_browser_context(tmp_path: Path) -> None:
+    fake_sacrificial = FakeSacrificialBrowserController()
+    controller = _build_controller(
+        tmp_path,
+        browser_command_mode="isolated",
+        sacrificial_controller=fake_sacrificial,
+    )
+
+    controller.handle_text_command("YouTube par lofi hip hop playlist search karo")
+    result = controller.handle_text_command(
+        "YouTube khul gaya but search nahi hui",
+        source="voice",
+    )
+
+    assert result.response_text == "YouTube par `lofi hip hop playlist` search kar diya."
+
+
+def test_controller_recovers_bare_search_from_sticky_browser_context(tmp_path: Path) -> None:
+    fake_sacrificial = FakeSacrificialBrowserController()
+    controller = _build_controller(
+        tmp_path,
+        browser_command_mode="isolated",
+        sacrificial_controller=fake_sacrificial,
+    )
+
+    controller.handle_text_command("YouTube par lofi hip hop playlist search karo")
+    result = controller.handle_text_command("search", source="voice")
+
+    assert result.response_text == "YouTube par `lofi hip hop playlist` search kar diya."
+
+
+def test_controller_overrides_malformed_youtube_retry_phrase_with_context(tmp_path: Path) -> None:
+    fake_sacrificial = FakeSacrificialBrowserController()
+    controller = _build_controller(
+        tmp_path,
+        browser_command_mode="isolated",
+        sacrificial_controller=fake_sacrificial,
+    )
+
+    controller.handle_text_command("YouTube par lofi hip hop playlist search karo")
+    result = controller.handle_text_command(
+        "YouTube khul gaya but woh hip hop playlist search nahi hui karo",
+        source="voice",
+    )
+
+    assert result.response_text == "YouTube par `lofi hip hop playlist` search kar diya."
+
+
 def test_controller_requires_confirmation_for_close_tab_in_isolated_mode(tmp_path: Path) -> None:
     fake_sacrificial = FakeSacrificialBrowserController()
     controller = _build_controller(

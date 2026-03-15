@@ -269,6 +269,48 @@ async def _verify_youtube_search(
     return result
 
 
+async def _verify_youtube_followup_retry(
+    runtime: VoiceRuntime,
+    audio_gateway: QueueAudioGateway,
+    *,
+    voice_dir: Path,
+    journal_rows_fn,
+    context,
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+
+    seeded = context.controller.handle_text_command(
+        "YouTube par lofi hip hop playlist search karo",
+        source="voice",
+    )
+    result["seed_response"] = seeded.response_text
+    result["seed_browser_task"] = {
+        "task_kind": context.state.active_browser_task.task_kind
+        if context.state.active_browser_task is not None
+        else "",
+        "query": context.state.active_browser_task.query
+        if context.state.active_browser_task is not None
+        else "",
+    }
+
+    before_ids = {row.id for row in journal_rows_fn()}
+    await _speak_turn(runtime, audio_gateway, voice_dir / "retry_search.wav", pre_delay_seconds=1.5)
+    row = await _wait_for_new_voice_row(
+        journal_rows_fn,
+        before_ids=before_ids,
+        action_names={"search_youtube"},
+        timeout=80.0,
+    )
+    result["followup_turn"] = asdict(
+        TurnOutcome(
+            journal_row=row,
+            last_response=runtime._state.last_response,
+            last_status=runtime._state.status.value,
+        )
+    )
+    return result
+
+
 async def _run_scenario(
     *,
     voice_dir: Path,
@@ -299,12 +341,20 @@ async def _run_scenario(
                 voice_dir=voice_dir,
                 journal_rows_fn=journal_rows_fn,
             )
-        else:
+        elif scenario == "youtube":
             result = await _verify_youtube_search(
                 runtime,
                 audio_gateway,
                 voice_dir=voice_dir,
                 journal_rows_fn=journal_rows_fn,
+            )
+        else:
+            result = await _verify_youtube_followup_retry(
+                runtime,
+                audio_gateway,
+                voice_dir=voice_dir,
+                journal_rows_fn=journal_rows_fn,
+                context=context,
             )
     finally:
         await runtime.stop()
@@ -327,7 +377,7 @@ async def main() -> None:
     )
     parser.add_argument(
         "--scenario",
-        choices=("github", "youtube", "both"),
+        choices=("github", "youtube", "youtube-followup", "both"),
         default="both",
     )
     args = parser.parse_args()
@@ -337,6 +387,11 @@ async def main() -> None:
         payload["github"] = await _run_scenario(voice_dir=args.voice_dir, scenario="github")
     if args.scenario in {"youtube", "both"}:
         payload["youtube"] = await _run_scenario(voice_dir=args.voice_dir, scenario="youtube")
+    if args.scenario in {"youtube-followup", "both"}:
+        payload["youtube_followup"] = await _run_scenario(
+            voice_dir=args.voice_dir,
+            scenario="youtube-followup",
+        )
 
     print(json.dumps(payload, indent=2))
 

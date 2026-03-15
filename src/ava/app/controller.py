@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
-from ava.app.state import AssistantState, AssistantStatus
+from ava.app.state import AssistantState, AssistantStatus, BrowserTaskContext
 from ava.automation.executor import ActionExecutor
 from ava.config.settings import Settings
 from ava.intents.models import IntentType, ParsedIntent
 from ava.intents.router import IntentRouter
 from ava.memory.journal import ActionJournalStore
 from ava.safety.policy import ConfirmationStatus, ResultStatus, SafetyDecision, SafetyPolicy
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -49,6 +52,11 @@ class AvaController:
 
         self.state.last_command = cleaned
         intent = self.intent_router.parse(cleaned, source=source)
+        follow_up_intent = self.resolve_browser_follow_up_intent(
+            cleaned,
+            parsed_intent=intent,
+            source=intent.source,
+        )
 
         if intent.intent_type is IntentType.CONFIRM:
             return self._handle_confirmation(True)
@@ -57,6 +65,7 @@ class AvaController:
 
         if intent.intent_type is IntentType.CANCEL:
             self._pending_action = None
+            self._clear_browser_task_context(reason="cancel")
             self.state.status = AssistantStatus.IDLE
             self.state.last_response = "Theek hai, cancel kar diya."
             self._record_journal(
@@ -93,6 +102,19 @@ class AvaController:
             )
             return CommandResult(self.state.last_response)
 
+        if follow_up_intent is not None:
+            logger.info(
+                "Browser follow-up corrective action chosen",
+                extra={
+                    "event": "browser_followup_action_chosen",
+                    "raw_command": cleaned,
+                    "intent_type": follow_up_intent.intent_type.value,
+                    "query": follow_up_intent.metadata.get("query", ""),
+                    "url": follow_up_intent.metadata.get("url", ""),
+                },
+            )
+            return self._execute_intent(cleaned, follow_up_intent, ConfirmationStatus.NOT_NEEDED)
+
         if intent.intent_type is IntentType.GENERAL_COMMAND:
             decision = self.safety_policy.evaluate(cleaned)
             if decision is SafetyDecision.CONFIRM:
@@ -107,6 +129,7 @@ class AvaController:
                 )
                 return CommandResult(self.state.last_response, confirmation_required=True)
             self.state.last_response = "Command note kar liya."
+            self._clear_browser_task_context(reason="general_command")
             self._record_journal(
                 command_text=cleaned,
                 action_name="command_received",
@@ -221,6 +244,7 @@ class AvaController:
 
         self.state.status = AssistantStatus.IDLE
         self.state.last_response = result.detail
+        self._sync_browser_task_context(intent=intent, result=result)
         self._record_journal(
             command_text=command_text,
             action_name=result.action_name,
@@ -248,4 +272,187 @@ class AvaController:
             result_status=result_status,
             source=source,
             details=details,
+        )
+
+    def resolve_browser_follow_up_intent(
+        self,
+        raw_text: str,
+        *,
+        parsed_intent: ParsedIntent | None = None,
+        source: str = "text",
+    ) -> ParsedIntent | None:
+        context = self.state.active_browser_task
+        if context is None or context.turns_remaining <= 0:
+            return None
+
+        intent = parsed_intent or self.intent_router.parse(raw_text, source=source)
+        normalized = intent.normalized_text
+        lowered = normalized.lower()
+
+        if context.query and self._looks_like_youtube_retry(lowered, context):
+            logger.info(
+                "Follow-up browser task detected",
+                extra={
+                    "event": "browser_followup_detected",
+                    "raw_command": raw_text,
+                    "task_kind": context.task_kind,
+                    "query": context.query,
+                    "page_url": context.page_url,
+                },
+            )
+            return ParsedIntent(
+                intent_type=IntentType.SEARCH_YOUTUBE,
+                raw_text=raw_text,
+                normalized_text=normalized,
+                source=source,
+                metadata={
+                    "query": context.query,
+                    "follow_up_reason": "retry_youtube_search",
+                    "context_task_kind": context.task_kind,
+                },
+            )
+
+        if context.query and self._looks_like_youtube_play_request(lowered, context):
+            logger.info(
+                "Follow-up browser task detected",
+                extra={
+                    "event": "browser_followup_detected",
+                    "raw_command": raw_text,
+                    "task_kind": context.task_kind,
+                    "query": context.query,
+                    "page_url": context.page_url,
+                },
+            )
+            return ParsedIntent(
+                intent_type=IntentType.PLAY_YOUTUBE_PLAYLIST,
+                raw_text=raw_text,
+                normalized_text=normalized,
+                source=source,
+                metadata={
+                    "query": context.query,
+                    "follow_up_reason": "retry_youtube_playlist",
+                    "context_task_kind": context.task_kind,
+                },
+            )
+
+        if context.url and self._looks_like_browser_reopen(lowered):
+            logger.info(
+                "Follow-up browser task detected",
+                extra={
+                    "event": "browser_followup_detected",
+                    "raw_command": raw_text,
+                    "task_kind": context.task_kind,
+                    "query": context.query,
+                    "page_url": context.page_url,
+                },
+            )
+            return ParsedIntent(
+                intent_type=IntentType.OPEN_WEBSITE,
+                raw_text=raw_text,
+                normalized_text=normalized,
+                source=source,
+                metadata={
+                    "url": context.url,
+                    "label": context.url,
+                    "follow_up_reason": "reopen_browser_target",
+                    "context_task_kind": context.task_kind,
+                },
+            )
+
+        return None
+
+    def has_browser_follow_up_candidate(self, raw_text: str, *, source: str = "voice") -> bool:
+        return self.resolve_browser_follow_up_intent(raw_text, source=source) is not None
+
+    def _sync_browser_task_context(self, *, intent: ParsedIntent, result) -> None:
+        browser_intents = {
+            IntentType.OPEN_BROWSER,
+            IntentType.OPEN_WEBSITE,
+            IntentType.FOCUS_ADDRESS_BAR,
+            IntentType.OPEN_NEW_TAB,
+            IntentType.SWITCH_TAB,
+            IntentType.SEARCH_PAGE,
+            IntentType.GET_CURRENT_PAGE,
+            IntentType.OPEN_YOUTUBE,
+            IntentType.SEARCH_YOUTUBE,
+            IntentType.PLAY_YOUTUBE_PLAYLIST,
+            IntentType.OPEN_INSTAGRAM_LOGIN,
+            IntentType.OPEN_WHATSAPP_WEB,
+            IntentType.CLOSE_TAB,
+        }
+        if intent.intent_type not in browser_intents or not result.success:
+            if intent.intent_type not in browser_intents:
+                self._clear_browser_task_context(reason="non_browser_action")
+            return
+
+        data = result.data or {}
+        if intent.intent_type is IntentType.SEARCH_YOUTUBE:
+            task_kind = "youtube_search"
+        elif intent.intent_type is IntentType.PLAY_YOUTUBE_PLAYLIST:
+            task_kind = "youtube_playlist"
+        elif intent.intent_type is IntentType.OPEN_YOUTUBE:
+            task_kind = "youtube_open"
+        else:
+            task_kind = "browser_navigation"
+
+        self.state.active_browser_task = BrowserTaskContext(
+            task_kind=task_kind,
+            query=intent.metadata.get("query", ""),
+            url=intent.metadata.get("url", data.get("url", "")),
+            page_title=str(data.get("title", "")),
+            page_url=str(data.get("url", "")),
+            browser_name=str(data.get("browser_name", "")),
+            turns_remaining=3,
+        )
+
+    def _clear_browser_task_context(self, *, reason: str) -> None:
+        if self.state.active_browser_task is None:
+            return
+        logger.info(
+            "Browser task context cleared",
+            extra={
+                "event": "browser_task_context_cleared",
+                "reason": reason,
+                "task_kind": self.state.active_browser_task.task_kind,
+                "query": self.state.active_browser_task.query,
+            },
+        )
+        self.state.active_browser_task = None
+
+    @staticmethod
+    def _looks_like_youtube_retry(normalized_text: str, context: BrowserTaskContext) -> bool:
+        if "youtube" not in context.task_kind and "youtube.com" not in context.page_url:
+            return False
+        collapsed_search_forms = {"search", "search karo", "search karo na", "search please"}
+        if normalized_text.strip(" .!?") in collapsed_search_forms:
+            return True
+        retry_markers = (
+            "search nahi hui",
+            "search nahi hua",
+            "search nahi ho",
+            "dobara search",
+            "phir se search",
+            "playlist search",
+            "retry search",
+        )
+        return any(marker in normalized_text for marker in retry_markers)
+
+    @staticmethod
+    def _looks_like_youtube_play_request(normalized_text: str, context: BrowserTaskContext) -> bool:
+        if "youtube" not in context.task_kind and "youtube.com" not in context.page_url:
+            return False
+        play_markers = (
+            "playlist chalao",
+            "playlist chala do",
+            "play karo",
+            "play kar do",
+            "woh wala khol do",
+        )
+        return any(marker in normalized_text for marker in play_markers)
+
+    @staticmethod
+    def _looks_like_browser_reopen(normalized_text: str) -> bool:
+        return any(
+            marker in normalized_text
+            for marker in ("dobara kholo", "phir se kholo", "reopen", "again kholo")
         )

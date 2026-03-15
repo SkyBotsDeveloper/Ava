@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Iterable
 from typing import ClassVar
@@ -23,6 +24,8 @@ from ava.automation.windows import (
     start_url_in_browser,
 )
 from ava.config.settings import Settings
+
+logger = logging.getLogger(__name__)
 
 
 class BrowserController:
@@ -185,24 +188,83 @@ class BrowserController:
         return self.open_url("https://www.youtube.com")
 
     def search_youtube(self, search_query: str) -> BrowserPageState:
-        return self.open_url(
+        page = self.open_url(
             f"https://www.youtube.com/results?search_query={quote_plus(search_query)}"
         )
+        logger.info(
+            "Submitted YouTube search in browser",
+            extra={
+                "event": "youtube_search_submitted",
+                "query": search_query,
+                "final_title": page.title,
+                "final_url": page.url,
+                "browser_name": page.browser_name,
+                "isolated": page.isolated,
+            },
+        )
+        logger.info(
+            "Observed final browser state after search submission",
+            extra={
+                "event": "browser_final_state_observed",
+                "query": search_query,
+                "final_title": page.title,
+                "final_url": page.url,
+                "browser_name": page.browser_name,
+                "isolated": page.isolated,
+            },
+        )
+        return page
 
     def play_youtube_playlist(self, search_query: str) -> PlaybackResult:
         plan = self.resolve_browser_plan()
         if plan.uses_isolated_session:
-            return self.sacrificial_controller.search_and_play_youtube_playlist(search_query)
+            playback = self.sacrificial_controller.search_and_play_youtube_playlist(search_query)
+            logger.info(
+                "Attempted YouTube playlist open in isolated browser",
+                extra={
+                    "event": "youtube_playlist_result_open_attempted",
+                    "query": search_query,
+                    "selected_href": playback.selected_href or "",
+                    "final_title": playback.page.title,
+                    "final_url": playback.page.url,
+                    "browser_name": playback.page.browser_name,
+                    "isolated": playback.page.isolated,
+                },
+            )
+            return playback
         target_url = self._resolve_youtube_target_url(search_query) or (
             f"https://www.youtube.com/results?search_query={quote_plus(search_query + ' playlist')}"
         )
+        logger.info(
+            "Attempting YouTube playlist result open",
+            extra={
+                "event": "youtube_playlist_result_open_attempted",
+                "query": search_query,
+                "target_url": target_url,
+                "browser_name": plan.browser_name,
+                "isolated": False,
+            },
+        )
         page = self.open_url(target_url)
-        return PlaybackResult(
+        playback = PlaybackResult(
             search_query=search_query,
             playing=False,
             page=page,
             selected_href=target_url,
         )
+        logger.info(
+            "Observed final browser state after playlist open attempt",
+            extra={
+                "event": "browser_final_state_observed",
+                "query": search_query,
+                "final_title": playback.page.title,
+                "final_url": playback.page.url,
+                "selected_href": playback.selected_href or "",
+                "browser_name": playback.page.browser_name,
+                "isolated": playback.page.isolated,
+            },
+        )
+        return playback
 
     def open_instagram_login(self, *, confirmed: bool = False) -> BrowserPageState:
         plan = self.resolve_browser_plan()

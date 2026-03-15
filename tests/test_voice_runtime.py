@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ava.app.controller import CommandResult
-from ava.app.state import AssistantState, AssistantStatus
+from ava.app.state import AssistantState, AssistantStatus, BrowserTaskContext
 from ava.config.settings import Settings
 from ava.intents.models import IntentType, ParsedIntent
 from ava.intents.router import IntentRouter
@@ -82,6 +82,28 @@ class FakeVoiceCommandController:
         self.calls.append((raw_text, source))
         self.state.last_response = "Browser khol diya."
         return CommandResult(response_text=self.state.last_response)
+
+    def resolve_browser_follow_up_intent(
+        self,
+        raw_text: str,
+        *,
+        parsed_intent: ParsedIntent | None = None,
+        source: str = "text",
+    ) -> ParsedIntent | None:
+        lowered = raw_text.lower()
+        if (
+            "dobara search" not in lowered
+            and "search nahi hui" not in lowered
+            and lowered.strip(" .!?") not in {"search", "search karo"}
+        ):
+            return None
+        return ParsedIntent(
+            intent_type=IntentType.SEARCH_YOUTUBE,
+            raw_text=raw_text,
+            normalized_text=raw_text.lower(),
+            source=source,
+            metadata={"query": "lofi hip hop playlist"},
+        )
 
 
 class FakeSpokenNormalizer:
@@ -518,3 +540,126 @@ def test_voice_runtime_repairs_observed_youtube_query_collapse(tmp_path) -> None
 
     assert controller.calls == []
     assert state.last_response == "Ye search query `lofi hip hop playlist` sahi hai na?"
+
+
+def test_voice_runtime_intercepts_browser_followup_before_chat_fallback(tmp_path) -> None:
+    settings = Settings(_env_file=None, gemini_api_key="test-key")
+    state = AssistantState(
+        active_browser_task=BrowserTaskContext(
+            task_kind="youtube_search",
+            query="lofi hip hop playlist",
+            page_url="https://www.youtube.com/",
+        )
+    )
+    journal = _build_journal(tmp_path)
+    live_client = FakeLiveClient(
+        receive_events=[
+            TranscriptEvent(text="dobara search karo", is_input=True, is_final=True),
+            TurnBoundaryEvent(phase="turn_complete", reason="stop"),
+        ]
+    )
+    audio_gateway = FakeAudioGateway(played_chunks=[])
+    controller = FakeVoiceCommandController(state)
+    runtime = VoiceRuntime(
+        settings=settings,
+        state=state,
+        journal=journal,
+        live_client=live_client,
+        audio_gateway=audio_gateway,
+        command_controller=controller,
+    )
+
+    async def scenario() -> None:
+        await runtime.begin_manual_capture()
+        await runtime.end_manual_capture()
+        receive_task = runtime._receive_task
+        assert receive_task is not None
+        await receive_task
+
+    asyncio.run(scenario())
+
+    assert controller.calls == [("dobara search karo", "voice")]
+
+
+def test_voice_runtime_intercepts_collapsed_search_followup(tmp_path) -> None:
+    settings = Settings(_env_file=None, gemini_api_key="test-key")
+    state = AssistantState(
+        active_browser_task=BrowserTaskContext(
+            task_kind="youtube_search",
+            query="lofi hip hop playlist",
+            page_url="https://www.youtube.com/",
+        )
+    )
+    journal = _build_journal(tmp_path)
+    live_client = FakeLiveClient(
+        receive_events=[
+            TranscriptEvent(text="search", is_input=True, is_final=True),
+            TurnBoundaryEvent(phase="turn_complete", reason="stop"),
+        ]
+    )
+    audio_gateway = FakeAudioGateway(played_chunks=[])
+    controller = FakeVoiceCommandController(state)
+    runtime = VoiceRuntime(
+        settings=settings,
+        state=state,
+        journal=journal,
+        live_client=live_client,
+        audio_gateway=audio_gateway,
+        command_controller=controller,
+    )
+
+    async def scenario() -> None:
+        await runtime.begin_manual_capture()
+        await runtime.end_manual_capture()
+        receive_task = runtime._receive_task
+        assert receive_task is not None
+        await receive_task
+
+    asyncio.run(scenario())
+
+    assert controller.calls == [("search", "voice")]
+
+
+def test_voice_runtime_intercepts_malformed_browser_retry_phrase(tmp_path) -> None:
+    settings = Settings(_env_file=None, gemini_api_key="test-key")
+    state = AssistantState(
+        active_browser_task=BrowserTaskContext(
+            task_kind="youtube_search",
+            query="lofi hip hop playlist",
+            page_url="https://www.youtube.com/",
+        )
+    )
+    journal = _build_journal(tmp_path)
+    live_client = FakeLiveClient(
+        receive_events=[
+            TranscriptEvent(
+                text="YouTube khul gaya but woh hip hop playlist search nahi hui karo",
+                is_input=True,
+                is_final=True,
+            ),
+            TurnBoundaryEvent(phase="turn_complete", reason="stop"),
+        ]
+    )
+    audio_gateway = FakeAudioGateway(played_chunks=[])
+    controller = FakeVoiceCommandController(state)
+    runtime = VoiceRuntime(
+        settings=settings,
+        state=state,
+        journal=journal,
+        live_client=live_client,
+        audio_gateway=audio_gateway,
+        command_controller=controller,
+    )
+
+    async def scenario() -> None:
+        await runtime.begin_manual_capture()
+        await runtime.end_manual_capture()
+        receive_task = runtime._receive_task
+        assert receive_task is not None
+        await receive_task
+
+    asyncio.run(scenario())
+
+    assert controller.calls == [
+        ("YouTube khul gaya but woh hip hop playlist search nahi hui karo", "voice")
+    ]

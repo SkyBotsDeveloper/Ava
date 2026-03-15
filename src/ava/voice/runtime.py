@@ -707,7 +707,27 @@ class VoiceRuntime:
             self._notify_state()
             return
         interpretation = self._spoken_normalizer.interpret(transcript, intent_router=intent_router)
-        self._browser_command_priority_active = interpretation.browser_like
+        follow_up_candidate = self._command_controller.resolve_browser_follow_up_intent(
+            transcript,
+            parsed_intent=interpretation.intent,
+            source="voice",
+        )
+        self._browser_command_priority_active = interpretation.browser_like or (
+            follow_up_candidate is not None
+        )
+        if follow_up_candidate is not None:
+            self._pending_voice_command_text = transcript
+            self._suppress_model_output = True
+            logger.info(
+                "Voice browser follow-up intercepted before chat fallback",
+                extra={
+                    "event": "voice_browser_followup_detected",
+                    "transcript": transcript,
+                    "intent_type": follow_up_candidate.intent_type.value,
+                    "query": follow_up_candidate.metadata.get("query", ""),
+                },
+            )
+            return
         if interpretation.intent.intent_type is IntentType.GENERAL_COMMAND:
             return
         if interpretation.needs_confirmation and interpretation.browser_like and not final_chunk:

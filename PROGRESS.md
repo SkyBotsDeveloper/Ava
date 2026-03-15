@@ -63,14 +63,19 @@
 - Added model-output recovery for collapsed spoken domains such as `. com` so Ava can ask a safe browser-specific confirmation instead of drifting into chat mode
 - Added targeted phrase repair for the observed YouTube search collapse so `YouTube par lofi hip hop playlist search karo` recovers to a browser search confirmation with the full query intact
 - Added live verification helper script for spoken-browser command regression checks against Gemini STT and the real Ava runtime
+- Added sticky browser-task context in the controller so in-progress YouTube/browser flows can reuse the last query and stay on the browser path across follow-up turns
+- Added follow-up browser retry routing in the voice runtime so corrective phrases are intercepted before Gemini chat fallback
+- Added explicit follow-up browser logs for task detection, corrective action choice, YouTube search submission, and final browser state observation
+- Added collapsed follow-up recovery so a distorted retry utterance that lands as just `search` can still retry the active YouTube search
 
 ### Verified
 
 - `ruff check .` passes
-- `pytest` passes (`71 passed`)
+- `pytest` passes (`78 passed`)
 - Live spoken verification confirms `github dot com kholo` now recovers from collapsed Gemini STT into the browser-specific prompt `Aap \`github.com\` bol rahe the na?`
 - Live spoken verification confirms `YouTube par lofi hip hop playlist search karo` now recovers into the browser-specific prompt `Ye search query \`lofi hip hop playlist\` sahi hai na?`
 - Browser-command priority is improved in live runs: both target phrases stayed on the browser-command path and produced confirmation prompts instead of falling back to general conversational replies
+- Live browser verification confirms a sticky YouTube search task can be retried from a spoken follow-up in the real default Edge session: the follow-up utterance collapsed to `search.`, Ava detected it as a browser follow-up, chose `search_youtube`, submitted `lofi hip hop playlist`, and observed the final Edge URL `https://www.youtube.com/results?search_query=lofi+hip+hop+playlist`
 
 ### Blocked
 
