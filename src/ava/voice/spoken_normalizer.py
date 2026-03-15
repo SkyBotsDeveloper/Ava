@@ -17,6 +17,7 @@ class SpokenInterpretation:
     intent: ParsedIntent
     needs_confirmation: bool = False
     confirmation_prompt: str | None = None
+    browser_like: bool = False
 
 
 class SpokenCommandNormalizer:
@@ -51,13 +52,18 @@ class SpokenCommandNormalizer:
         (r"\bo\s*p\s*e\s*n\s*a\s*i\b", "openai"),
         (r"\blo\s*fi\b", "lofi"),
         (r"\blo\s*f[yi]\b", "lofi"),
+        (r"\blop\s*f[yi]\b", "lofi"),
+        (r"(?<!lofi\s)\bhi\s*p\s*hop\s+pla\s*y\s*list\b", "lofi hip hop playlist"),
         (r"\bhip\s*hop\b", "hip hop"),
         (r"\bhi\s*p\s*hop\b", "hip hop"),
+        (r"\bp\s*a\s*r\b", "par"),
         (r"\bplay\s*list\b", "playlist"),
+        (r"\bpla\s*y\s*list\b", "playlist"),
         (r"\bsho\s*w\b", "show"),
         (r"\bcur\s*rent\b", "current"),
         (r"\bti\s*tle\b", "title"),
         (r"\bsear\s*ch\b", "search"),
+        (r"\bse\s*arch\b", "search"),
         (r"\bcolo\b", "kholo"),
         (r"\bholo\b", "kholo"),
     )
@@ -98,9 +104,25 @@ class SpokenCommandNormalizer:
             "kholo",
         }
     )
+    BROWSER_HINT_PATTERNS: ClassVar[tuple[str, ...]] = (
+        r"\b(?:youtube|instagram|github|openai|python|google|gmail|whatsapp|browser)\b",
+        r"\b(?:website|page|tab|title|url|address bar|search|playlist|kholo|open)\b",
+        r"\.(?:com|org|in|net|io|ai|app|dev)\b",
+        r"\bdot\s+(?:com|org|in|net|io|ai|app|dev)\b",
+    )
+    MODEL_DOMAIN_HINTS: ClassVar[dict[str, str]] = {
+        "github": "github.com kholo",
+        "youtube": "youtube kholo",
+        "instagram": "instagram.com kholo",
+        "openai": "openai.com kholo",
+        "python": "python.org kholo",
+        "google": "google.com kholo",
+        "whatsapp web": "whatsapp web kholo",
+    }
 
     def interpret(self, raw_text: str, *, intent_router: IntentRouter) -> SpokenInterpretation:
         normalized_text = self._normalize_text(raw_text)
+        browser_like = self.looks_browser_like(raw_text) or self.looks_browser_like(normalized_text)
         intent = intent_router.parse(normalized_text, source="voice")
         normalized_text, intent, domain_was_corrected = self._canonicalize_website_intent(
             normalized_text,
@@ -112,6 +134,7 @@ class SpokenCommandNormalizer:
                 raw_text=raw_text,
                 normalized_text=normalized_text,
                 intent=intent,
+                browser_like=browser_like,
             )
 
         confirmation_prompt = self._build_confirmation_prompt(
@@ -126,6 +149,86 @@ class SpokenCommandNormalizer:
             intent=intent,
             needs_confirmation=confirmation_prompt is not None,
             confirmation_prompt=confirmation_prompt,
+            browser_like=browser_like,
+        )
+
+    def recover_browser_command(
+        self,
+        *,
+        raw_text: str,
+        model_text: str,
+        intent_router: IntentRouter,
+    ) -> SpokenInterpretation | None:
+        normalized_raw = self._normalize_text(raw_text)
+        normalized_model = self._normalize_text(model_text)
+        browser_like = self.looks_browser_like(raw_text) or self.looks_browser_like(
+            normalized_model
+        )
+        if not browser_like:
+            return None
+
+        raw_intent = intent_router.parse(normalized_raw, source="voice")
+        if self._looks_like_youtube_search(normalized_raw, normalized_model):
+            youtube_query = (
+                raw_intent.metadata.get("query")
+                if raw_intent.intent_type
+                in {IntentType.SEARCH_YOUTUBE, IntentType.PLAY_YOUTUBE_PLAYLIST}
+                else None
+            ) or self._extract_model_youtube_query(model_text)
+            if not youtube_query:
+                return None
+            normalized_command = (
+                f"youtube par {youtube_query} search karo"
+                if "search" in normalized_raw or "search" in normalized_model
+                else f"youtube par {youtube_query} playlist chalao"
+            )
+            intent = intent_router.parse(normalized_command, source="voice")
+            prompt = (
+                f"Ye search query `{youtube_query}` sahi hai na?"
+                if self._query_needs_confirmation(raw_text, normalized_command, youtube_query)
+                else None
+            )
+            return SpokenInterpretation(
+                raw_text=raw_text,
+                normalized_text=normalized_command,
+                intent=intent,
+                needs_confirmation=prompt is not None,
+                confirmation_prompt=prompt,
+                browser_like=True,
+            )
+
+        for hint, normalized_command in self.MODEL_DOMAIN_HINTS.items():
+            if hint not in normalized_model:
+                continue
+            intent = intent_router.parse(normalized_command, source="voice")
+            domain = self._extract_domain(intent.metadata.get("url", ""))
+            prompt = None
+            if domain and domain not in re.findall(r"[a-z0-9.]+", self._normalize_text(raw_text)):
+                prompt = f"Aap `{domain}` bol rahe the na?"
+            return SpokenInterpretation(
+                raw_text=raw_text,
+                normalized_text=normalized_command,
+                intent=intent,
+                needs_confirmation=prompt is not None,
+                confirmation_prompt=prompt,
+                browser_like=True,
+            )
+        return None
+
+    def looks_browser_like(self, text: str) -> bool:
+        lowered = " ".join(text.lower().split())
+        if re.search(rf"(^|\s)\.\s*(?:{'|'.join(self.DOT_TLDS)})\b", lowered):
+            return True
+        if re.search(rf"\bdot\s+(?:{'|'.join(self.DOT_TLDS)})\b", lowered):
+            return True
+        normalized = self._normalize_text(text)
+        return any(re.search(pattern, normalized) for pattern in self.BROWSER_HINT_PATTERNS)
+
+    @staticmethod
+    def _looks_like_youtube_search(normalized_raw: str, normalized_model: str) -> bool:
+        combined = f"{normalized_raw} {normalized_model}"
+        return "youtube" in combined and any(
+            token in combined for token in ("search", "playlist", "find", "dhundo")
         )
 
     def _canonicalize_website_intent(
@@ -263,3 +366,19 @@ class SpokenCommandNormalizer:
         if closest:
             return trusted_labels[closest[0]]
         return domain
+
+    @staticmethod
+    def _extract_model_youtube_query(model_text: str) -> str | None:
+        quoted_match = re.search(
+            r'(?i)search(?:ing)?\s+["`]?(.+?)["`]?\s+(?:on|in)\s+youtube\b',
+            model_text,
+        )
+        if quoted_match:
+            return quoted_match.group(1).strip(" .")
+        plain_match = re.search(
+            r"(?i)youtube\s+search(?:ing)?\s+for\s+(.+?)(?:[.!?]|$)",
+            model_text,
+        )
+        if plain_match:
+            return plain_match.group(1).strip(" .")
+        return None

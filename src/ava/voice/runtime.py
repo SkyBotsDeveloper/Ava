@@ -97,6 +97,7 @@ class VoiceRuntime:
         self._generation_complete_received = False
         self._pending_voice_command_text: str | None = None
         self._pending_spoken_interpretation: SpokenInterpretation | None = None
+        self._browser_command_priority_active = False
         self._command_feedback_in_progress = False
         self._suppress_model_output = False
 
@@ -251,6 +252,7 @@ class VoiceRuntime:
         self._silence_ms = 0
         self._pending_voice_command_text = None
         self._pending_spoken_interpretation = None
+        self._browser_command_priority_active = False
         self._command_feedback_in_progress = False
         self._suppress_model_output = False
         if self._audio_gateway is not None:
@@ -299,6 +301,7 @@ class VoiceRuntime:
         self._pending_voice_command_text = None
         self._command_feedback_in_progress = False
         self._suppress_model_output = False
+        self._browser_command_priority_active = False
         self._state.status = AssistantStatus.LISTENING
         self._state.last_response = (
             self._pending_spoken_interpretation.confirmation_prompt
@@ -487,7 +490,7 @@ class VoiceRuntime:
                         "transcript": self._input_transcript,
                     },
                 )
-                self._detect_voice_command_candidate()
+                self._detect_voice_command_candidate(final_chunk=event.is_final)
         else:
             if self._suppress_model_output and not self._command_feedback_in_progress:
                 return
@@ -496,6 +499,9 @@ class VoiceRuntime:
                     self._output_transcript,
                     event.text,
                 )
+                if self._try_recover_browser_command_from_model_output():
+                    self._notify_state()
+                    return
                 self._state.last_response = self._output_transcript
                 self._state.status = AssistantStatus.SPEAKING
                 logger.info(
@@ -543,7 +549,7 @@ class VoiceRuntime:
             event.phase in {"turn_complete", "waiting_for_input"}
             and not self._pending_voice_command_text
         ):
-            self._detect_voice_command_candidate()
+            self._detect_voice_command_candidate(final_chunk=True)
         if (
             event.phase in {"turn_complete", "waiting_for_input"}
             and self._pending_voice_command_text
@@ -627,6 +633,7 @@ class VoiceRuntime:
         self._generation_complete_received = False
         self._pending_voice_command_text = None
         self._pending_spoken_interpretation = None
+        self._browser_command_priority_active = False
         self._command_feedback_in_progress = False
         self._suppress_model_output = False
         self._notify_state()
@@ -656,7 +663,7 @@ class VoiceRuntime:
         )
         return f"{current}{separator}{chunk}"
 
-    def _detect_voice_command_candidate(self) -> None:
+    def _detect_voice_command_candidate(self, *, final_chunk: bool = False) -> None:
         if self._command_controller is None:
             return
         transcript = self._input_transcript.strip()
@@ -700,7 +707,10 @@ class VoiceRuntime:
             self._notify_state()
             return
         interpretation = self._spoken_normalizer.interpret(transcript, intent_router=intent_router)
+        self._browser_command_priority_active = interpretation.browser_like
         if interpretation.intent.intent_type is IntentType.GENERAL_COMMAND:
+            return
+        if interpretation.needs_confirmation and interpretation.browser_like and not final_chunk:
             return
         if interpretation.needs_confirmation:
             self._pending_spoken_interpretation = interpretation
@@ -732,6 +742,50 @@ class VoiceRuntime:
             },
         )
 
+    def _try_recover_browser_command_from_model_output(self) -> bool:
+        if not self._browser_command_priority_active or self._command_controller is None:
+            return False
+        if self._pending_voice_command_text or self._pending_spoken_interpretation is not None:
+            return False
+        interpretation = self._spoken_normalizer.recover_browser_command(
+            raw_text=self._input_transcript,
+            model_text=self._output_transcript,
+            intent_router=self._command_controller.intent_router,
+        )
+        if interpretation is None:
+            return False
+
+        self._suppress_model_output = True
+        self._output_transcript = ""
+        self._state.status = AssistantStatus.IDLE
+        if interpretation.needs_confirmation:
+            self._pending_spoken_interpretation = interpretation
+            self._pending_voice_command_text = None
+            self._input_transcript = ""
+            self._state.last_response = interpretation.confirmation_prompt or "Confirm karo."
+            logger.info(
+                "Browser command recovered from model output with confirmation",
+                extra={
+                    "event": "browser_command_recovered_with_confirmation",
+                    "raw_transcript": interpretation.raw_text,
+                    "normalized_command": interpretation.normalized_text,
+                    "intent_type": interpretation.intent.intent_type.value,
+                },
+            )
+            return True
+
+        self._pending_voice_command_text = interpretation.normalized_text
+        logger.info(
+            "Browser command recovered from model output",
+            extra={
+                "event": "browser_command_recovered_from_model_output",
+                "raw_transcript": interpretation.raw_text,
+                "normalized_command": interpretation.normalized_text,
+                "intent_type": interpretation.intent.intent_type.value,
+            },
+        )
+        return True
+
     async def _execute_voice_command(self) -> None:
         transcript = (self._pending_voice_command_text or "").strip()
         self._pending_voice_command_text = None
@@ -761,6 +815,7 @@ class VoiceRuntime:
         self._output_transcript = ""
         self._generation_complete_received = False
         self._pending_spoken_interpretation = None
+        self._browser_command_priority_active = False
         self._command_feedback_in_progress = False
         self._state.status = AssistantStatus.IDLE
         self._notify_state()

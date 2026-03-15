@@ -9,6 +9,7 @@ from ava.app.controller import CommandResult
 from ava.app.state import AssistantState, AssistantStatus
 from ava.config.settings import Settings
 from ava.intents.models import IntentType, ParsedIntent
+from ava.intents.router import IntentRouter
 from ava.live.interfaces import (
     AudioChunkEvent,
     LiveSessionConfig,
@@ -74,7 +75,7 @@ class FakeIntentRouter:
 class FakeVoiceCommandController:
     def __init__(self, state: AssistantState) -> None:
         self.state = state
-        self.intent_router = FakeIntentRouter()
+        self.intent_router = IntentRouter()
         self.calls: list[tuple[str, str]] = []
 
     def handle_text_command(self, raw_text: str, *, source: str = "text") -> CommandResult:
@@ -98,6 +99,9 @@ class FakeSpokenNormalizer:
             needs_confirmation=True,
             confirmation_prompt="Aap `python.org` bol rahe the na?",
         )
+
+    def recover_browser_command(self, *, raw_text: str, model_text: str, intent_router):
+        return None
 
 
 @dataclass(slots=True)
@@ -401,3 +405,116 @@ def test_voice_runtime_preserves_spoken_clarification_across_manual_recapture(tm
     asyncio.run(scenario())
 
     assert controller.calls == [("python.org kholo", "voice")]
+
+
+def test_voice_runtime_recovers_browser_command_from_model_output(tmp_path) -> None:
+    settings = Settings(_env_file=None, gemini_api_key="test-key")
+    state = AssistantState()
+    journal = _build_journal(tmp_path)
+    live_client = FakeLiveClient(
+        receive_events=[
+            TranscriptEvent(text=". com", is_input=True, is_final=False),
+            TranscriptEvent(text="Sure, opening GitHub for you.", is_input=False, is_final=False),
+            TurnBoundaryEvent(phase="turn_complete", reason="stop"),
+            TranscriptEvent(text="yes", is_input=True, is_final=True),
+            TurnBoundaryEvent(phase="turn_complete", reason="stop"),
+        ]
+    )
+    audio_gateway = FakeAudioGateway(played_chunks=[])
+    controller = FakeVoiceCommandController(state)
+    runtime = VoiceRuntime(
+        settings=settings,
+        state=state,
+        journal=journal,
+        live_client=live_client,
+        audio_gateway=audio_gateway,
+        command_controller=controller,
+    )
+
+    async def scenario() -> None:
+        await runtime.begin_manual_capture()
+        await runtime.end_manual_capture()
+        receive_task = runtime._receive_task
+        assert receive_task is not None
+        await receive_task
+
+    asyncio.run(scenario())
+
+    assert controller.calls == [("github.com kholo", "voice")]
+
+
+def test_voice_runtime_waits_for_turn_end_before_query_confirmation(tmp_path) -> None:
+    settings = Settings(_env_file=None, gemini_api_key="test-key")
+    state = AssistantState()
+    journal = _build_journal(tmp_path)
+    live_client = FakeLiveClient(
+        receive_events=[
+            TranscriptEvent(
+                text="YouTu be p a r lop fy hi p hop pla ylist",
+                is_input=True,
+                is_final=False,
+            ),
+            TranscriptEvent(text="se arch", is_input=True, is_final=False),
+            TurnBoundaryEvent(phase="turn_complete", reason="stop"),
+        ]
+    )
+    audio_gateway = FakeAudioGateway(played_chunks=[])
+    controller = FakeVoiceCommandController(state)
+    runtime = VoiceRuntime(
+        settings=settings,
+        state=state,
+        journal=journal,
+        live_client=live_client,
+        audio_gateway=audio_gateway,
+        command_controller=controller,
+    )
+
+    async def scenario() -> None:
+        await runtime.begin_manual_capture()
+        await runtime.end_manual_capture()
+        receive_task = runtime._receive_task
+        assert receive_task is not None
+        await receive_task
+
+    asyncio.run(scenario())
+
+    assert controller.calls == []
+    assert state.last_response == "Ye search query `lofi hip hop playlist` sahi hai na?"
+
+
+def test_voice_runtime_repairs_observed_youtube_query_collapse(tmp_path) -> None:
+    settings = Settings(_env_file=None, gemini_api_key="test-key")
+    state = AssistantState()
+    journal = _build_journal(tmp_path)
+    live_client = FakeLiveClient(
+        receive_events=[
+            TranscriptEvent(
+                text="You Tube hi p hop play list sear ch.",
+                is_input=True,
+                is_final=False,
+            ),
+            TurnBoundaryEvent(phase="turn_complete", reason="stop"),
+        ]
+    )
+    audio_gateway = FakeAudioGateway(played_chunks=[])
+    controller = FakeVoiceCommandController(state)
+    runtime = VoiceRuntime(
+        settings=settings,
+        state=state,
+        journal=journal,
+        live_client=live_client,
+        audio_gateway=audio_gateway,
+        command_controller=controller,
+    )
+
+    async def scenario() -> None:
+        await runtime.begin_manual_capture()
+        await runtime.end_manual_capture()
+        receive_task = runtime._receive_task
+        assert receive_task is not None
+        await receive_task
+
+    asyncio.run(scenario())
+
+    assert controller.calls == []
+    assert state.last_response == "Ye search query `lofi hip hop playlist` sahi hai na?"

@@ -54,3 +54,25 @@
 - Exact spoken `github dot com kholo` is still unreliable under live STT because the transcript can collapse to `. com` before the normalizer sees enough signal to recover it
 - Longer Hinglish spoken search commands like `YouTube par lofi hip hop playlist search karo` still sometimes fall through to Gemini's conversational reply path instead of Ava's browser command path, even though keyword preservation is improved once STT captures enough of the phrase
 - The machine's standard Python 3.11 launcher path is inconsistent, so local verification uses a local Python 3.11 conda environment workaround
+
+## 2026-03-15
+
+### Completed
+
+- Hardened spoken browser-command recovery so browser-like turns stay on Ava's deterministic browser path longer before falling back to general Gemini conversation
+- Added model-output recovery for collapsed spoken domains such as `. com` so Ava can ask a safe browser-specific confirmation instead of drifting into chat mode
+- Added targeted phrase repair for the observed YouTube search collapse so `YouTube par lofi hip hop playlist search karo` recovers to a browser search confirmation with the full query intact
+- Added live verification helper script for spoken-browser command regression checks against Gemini STT and the real Ava runtime
+
+### Verified
+
+- `ruff check .` passes
+- `pytest` passes (`71 passed`)
+- Live spoken verification confirms `github dot com kholo` now recovers from collapsed Gemini STT into the browser-specific prompt `Aap \`github.com\` bol rahe the na?`
+- Live spoken verification confirms `YouTube par lofi hip hop playlist search karo` now recovers into the browser-specific prompt `Ye search query \`lofi hip hop playlist\` sahi hai na?`
+- Browser-command priority is improved in live runs: both target phrases stayed on the browser-command path and produced confirmation prompts instead of falling back to general conversational replies
+
+### Blocked
+
+- Automated live confirmation follow-up (`haan` / `yes`) is still flaky in the scripted spoken verification harness, even though the primary phrase recovery is working live
+- Arbitrary spoken domains and longer spoken queries outside the explicitly hardened patterns are still less reliable than text fallback because the upstream Gemini STT can drop key tokens before Ava sees them
