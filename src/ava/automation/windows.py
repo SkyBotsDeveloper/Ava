@@ -36,6 +36,7 @@ _VK_W: Final = 0x57
 _VK_L: Final = 0x4C
 _VK_F: Final = 0x46
 _VK_T: Final = 0x54
+_VK_V: Final = 0x56
 _VK_SHIFT: Final = 0x10
 _VK_C: Final = 0x43
 _VK_ESCAPE: Final = 0x1B
@@ -357,7 +358,7 @@ class WindowController:
             return False
         self._focus_address_bar(hwnd)
         time.sleep(0.12)
-        self._type_into_focused_browser(hwnd, url)
+        self._paste_into_focused_browser(hwnd, url)
         self._press_browser_enter(hwnd)
         logger.info(
             "URL typed into active browser",
@@ -397,7 +398,7 @@ class WindowController:
         time.sleep(0.2)
         normalized_url = url.strip()
         if normalized_url and normalized_url.lower() != "about:blank":
-            self._type_into_focused_browser(hwnd, normalized_url)
+            self._paste_into_focused_browser(hwnd, normalized_url)
             self._press_browser_enter(hwnd)
         logger.info(
             "Opened browser new tab",
@@ -443,7 +444,7 @@ class WindowController:
             return False
         self._send_browser_keys(hwnd, "^f", (_VK_CONTROL,), _VK_F)
         time.sleep(0.15)
-        self._type_into_focused_browser(hwnd, query)
+        self._paste_into_focused_browser(hwnd, query)
         self._press_browser_enter(hwnd)
         logger.info(
             "Triggered browser in-page search",
@@ -546,6 +547,17 @@ class WindowController:
             send_keys(text, with_spaces=True, pause=0.01)
             return
         self._type_text(hwnd, text)
+
+    def _paste_into_focused_browser(self, hwnd: int, text: str) -> None:
+        previous_clipboard = self._read_clipboard_text()
+        if win32clipboard is None:
+            self._type_into_focused_browser(hwnd, text)
+            return
+        self._set_clipboard_text(text)
+        self._send_browser_keys(hwnd, "^v", (_VK_CONTROL,), _VK_V)
+        time.sleep(0.05)
+        if previous_clipboard is not None:
+            self._set_clipboard_text(previous_clipboard)
 
     def _copy_browser_url(self, hwnd: int) -> str:
         previous_clipboard = self._read_clipboard_text()

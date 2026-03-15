@@ -23,6 +23,9 @@
 - Switched the normal browser command default to the user's real Microsoft Edge profile/session, while keeping the sacrificial browser as a fallback mode
 - Wired live Edge browser actions into Ava's real intent/controller/executor command pipeline for website open, tab control, page search/info, YouTube result opening, and confirmation-gated Instagram/WhatsApp flows
 - Wired spoken voice commands into the same real controller/executor browser path with transcript normalization for common Gemini STT split-word variants
+- Added a dedicated spoken-command normalization layer for fragmented domains, trusted domain correction, query preservation, and ambiguity confirmation prompts
+- Hardened the voice runtime so spoken clarification prompts persist across follow-up confirmation turns instead of being cleared on the next manual capture
+- Added a spoken YouTube search intent and live browser action path, while keeping sensitive/destructive browser actions confirmation-gated
 
 ### Verified
 
@@ -39,9 +42,15 @@
 - Real sacrificial browser verification succeeds for isolated website open/navigation, tab actions, page info detection, YouTube playlist playback, Instagram login page open, and WhatsApp Web open
 - Real Ava command-pipeline verification succeeds for live Edge browser commands via `AvaController.handle_text_command(...)`, including confirmation-gated tab close, Instagram login, and WhatsApp Web
 - Real spoken-command verification succeeds against the live Gemini STT pipeline for browser open, address bar focus, new tab, tab switch, page search, page title/url readout, confirmation-gated tab close, YouTube open, spoken YouTube result opening, confirmation-gated Instagram login page open, and confirmation-gated WhatsApp Web open
+- Live spoken verification now confirms `python dot org kholo` normalizes from fragmented STT (`py tho n.org`) into `python.org kholo` and opens the real default Edge session to `https://python.org/`
+- Live spoken verification now confirms `youtube kholo` normalizes from fragmented STT (`YouTube Colo`) into `youtube kholo` and opens `https://www.youtube.com/` in the real default Edge session
+- Live spoken verification now confirms `current page ka title batao` still routes through the real command pipeline even when Gemini STT heavily distorts the transcript, and returns the active Edge page title/URL
+- Live spoken verification now confirms the ambiguous-domain fallback flow: `hub dot com kholo` prompts `Aap \`github.com\` bol rahe the na?`, and spoken `yes` opens `https://github.com` in the real default Edge session
 
 ### Blocked
 
 - Always-on wake testing is blocked until a real openWakeWord model path is configured
 - Exact arbitrary spoken URL dictation and longer spoken search queries are still less reliable than text fallback because Gemini STT can distort domains/queries before they reach the intent router
+- Exact spoken `github dot com kholo` is still unreliable under live STT because the transcript can collapse to `. com` before the normalizer sees enough signal to recover it
+- Longer Hinglish spoken search commands like `YouTube par lofi hip hop playlist search karo` still sometimes fall through to Gemini's conversational reply path instead of Ava's browser command path, even though keyword preservation is improved once STT captures enough of the phrase
 - The machine's standard Python 3.11 launcher path is inconsistent, so local verification uses a local Python 3.11 conda environment workaround

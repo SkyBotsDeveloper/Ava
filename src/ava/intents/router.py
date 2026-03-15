@@ -99,6 +99,7 @@ class IntentRouter:
             self._parse_focus_address_bar,
             self._parse_new_tab,
             self._parse_switch_tab,
+            self._parse_youtube_search,
             self._parse_youtube_playlist,
             self._parse_instagram_login,
             self._parse_whatsapp_web,
@@ -234,7 +235,9 @@ class IntentRouter:
         if "youtube" not in normalized:
             return None
         if any(token in normalized for token in ("playlist", "play")):
-            query = self._extract_playlist_query(raw_text)
+            query = self._extract_playlist_query(raw_text) or self._extract_playlist_query(
+                normalized
+            )
             if query:
                 return ParsedIntent(
                     IntentType.PLAY_YOUTUBE_PLAYLIST,
@@ -246,6 +249,29 @@ class IntentRouter:
         if any(token in normalized for token in ("khol", "open", "launch")):
             return ParsedIntent(IntentType.OPEN_YOUTUBE, raw_text, normalized, source=source)
         return None
+
+    def _parse_youtube_search(
+        self,
+        raw_text: str,
+        normalized: str,
+        source: str,
+    ) -> ParsedIntent | None:
+        if "youtube" not in normalized:
+            return None
+        if not any(token in normalized for token in ("search", "find", "dhundo")):
+            return None
+        query = self._extract_youtube_search_query(raw_text) or self._extract_youtube_search_query(
+            normalized
+        )
+        if not query:
+            return None
+        return ParsedIntent(
+            IntentType.SEARCH_YOUTUBE,
+            raw_text,
+            normalized,
+            source=source,
+            metadata={"query": query},
+        )
 
     def _parse_instagram_login(
         self,
@@ -526,7 +552,24 @@ class IntentRouter:
         quoted = cls._extract_quoted_names(raw_text)
         if quoted:
             return quoted[0]
-        cleaned = re.sub(r"(?i)\b(ava|youtube|playlist|play|chalao|par|please)\b", "", raw_text)
+        cleaned = re.sub(
+            r"(?i)\b(ava|youtube|playlist|play|chalao|par|pa|on|please)\b",
+            "",
+            raw_text,
+        )
+        cleaned = " ".join(cleaned.split()).strip(" -:")
+        return cleaned or None
+
+    @classmethod
+    def _extract_youtube_search_query(cls, raw_text: str) -> str | None:
+        quoted = cls._extract_quoted_names(raw_text)
+        if quoted:
+            return quoted[0]
+        cleaned = re.sub(
+            r"(?i)\b(ava|youtube|search|find|dhundo|karo|please|par|pa|on)\b",
+            "",
+            raw_text,
+        )
         cleaned = " ".join(cleaned.split()).strip(" -:")
         return cleaned or None
 

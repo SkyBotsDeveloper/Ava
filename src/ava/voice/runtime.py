@@ -23,6 +23,7 @@ from ava.live.prompting import AVA_SYSTEM_INSTRUCTION
 from ava.memory.journal import ActionJournalStore
 from ava.safety.policy import ConfirmationStatus, ResultStatus
 from ava.voice.interfaces import AudioGateway, WakeWordEngine
+from ava.voice.spoken_normalizer import SpokenCommandNormalizer, SpokenInterpretation
 from ava.voice.vad import VoiceActivityDetector
 
 try:
@@ -66,6 +67,7 @@ class VoiceRuntime:
         audio_gateway: AudioGateway | None = None,
         wake_word_engine: WakeWordEngine | None = None,
         command_controller: AvaController | None = None,
+        spoken_command_normalizer: SpokenCommandNormalizer | None = None,
         on_state_changed: Callable[[], None] | None = None,
         on_journal_changed: Callable[[], None] | None = None,
     ) -> None:
@@ -76,6 +78,7 @@ class VoiceRuntime:
         self._audio_gateway = audio_gateway
         self._wake_word_engine = wake_word_engine
         self._command_controller = command_controller
+        self._spoken_normalizer = spoken_command_normalizer or SpokenCommandNormalizer()
         self._on_state_changed = on_state_changed
         self._on_journal_changed = on_journal_changed
         self._availability = self.inspect_availability(settings)
@@ -93,6 +96,7 @@ class VoiceRuntime:
         self._vad = VoiceActivityDetector()
         self._generation_complete_received = False
         self._pending_voice_command_text: str | None = None
+        self._pending_spoken_interpretation: SpokenInterpretation | None = None
         self._command_feedback_in_progress = False
         self._suppress_model_output = False
 
@@ -246,6 +250,7 @@ class VoiceRuntime:
         self._speech_detected = False
         self._silence_ms = 0
         self._pending_voice_command_text = None
+        self._pending_spoken_interpretation = None
         self._command_feedback_in_progress = False
         self._suppress_model_output = False
         if self._audio_gateway is not None:
@@ -283,6 +288,7 @@ class VoiceRuntime:
         await self._ensure_live_session()
         self._ensure_receive_task()
         await self._live_client.send_activity_start()
+        awaiting_spoken_clarification = self._pending_spoken_interpretation is not None
 
         self._capture_active = True
         self._speech_detected = False
@@ -294,18 +300,26 @@ class VoiceRuntime:
         self._command_feedback_in_progress = False
         self._suppress_model_output = False
         self._state.status = AssistantStatus.LISTENING
-        self._state.last_response = "Haan, boliye."
+        self._state.last_response = (
+            self._pending_spoken_interpretation.confirmation_prompt
+            if awaiting_spoken_clarification
+            else "Haan, boliye."
+        )
         self._record_action(
             command_text="manual_trigger",
             action_name="manual_voice_trigger",
             result_status=ResultStatus.PLANNED,
-            details={"hotkey": self._settings.push_to_talk_hotkey},
+            details={
+                "hotkey": self._settings.push_to_talk_hotkey,
+                "awaiting_spoken_clarification": awaiting_spoken_clarification,
+            },
         )
         logger.info(
             "Manual voice trigger started",
             extra={
                 "event": "manual_trigger_started",
                 "hotkey": self._settings.push_to_talk_hotkey,
+                "awaiting_spoken_clarification": awaiting_spoken_clarification,
             },
         )
         self._notify_state()
@@ -537,6 +551,14 @@ class VoiceRuntime:
         ):
             await self._execute_voice_command()
             return
+        if (
+            event.phase in {"turn_complete", "waiting_for_input"}
+            and self._pending_spoken_interpretation is not None
+            and not self._pending_voice_command_text
+        ):
+            self._state.status = AssistantStatus.IDLE
+            self._notify_state()
+            return
         if event.phase == "generation_complete":
             self._generation_complete_received = True
             if self._state.status is not AssistantStatus.SPEAKING:
@@ -604,6 +626,7 @@ class VoiceRuntime:
         self._output_transcript = ""
         self._generation_complete_received = False
         self._pending_voice_command_text = None
+        self._pending_spoken_interpretation = None
         self._command_feedback_in_progress = False
         self._suppress_model_output = False
         self._notify_state()
@@ -639,17 +662,73 @@ class VoiceRuntime:
         transcript = self._input_transcript.strip()
         if not transcript:
             return
-        intent = self._command_controller.intent_router.parse(transcript, source="voice")
-        if intent.intent_type is IntentType.GENERAL_COMMAND:
+        intent_router = self._command_controller.intent_router
+        if self._pending_spoken_interpretation is not None:
+            confirmation_intent = intent_router.parse(transcript, source="voice")
+            if confirmation_intent.intent_type is IntentType.CONFIRM:
+                interpretation = self._pending_spoken_interpretation
+                self._pending_spoken_interpretation = None
+                self._pending_voice_command_text = interpretation.normalized_text
+                self._input_transcript = ""
+                self._suppress_model_output = True
+                logger.info(
+                    "Spoken clarification confirmed",
+                    extra={
+                        "event": "spoken_clarification_confirmed",
+                        "normalized_command": interpretation.normalized_text,
+                    },
+                )
+                return
+            if confirmation_intent.intent_type in {IntentType.DENY, IntentType.CANCEL}:
+                self._pending_spoken_interpretation = None
+                self._pending_voice_command_text = None
+                self._input_transcript = ""
+                self._suppress_model_output = True
+                self._state.last_response = "Theek hai, dobara bolo."
+                self._state.status = AssistantStatus.IDLE
+                logger.info(
+                    "Spoken clarification denied",
+                    extra={"event": "spoken_clarification_denied"},
+                )
+                self._notify_state()
+                return
+            self._suppress_model_output = True
+            self._state.last_response = (
+                self._pending_spoken_interpretation.confirmation_prompt or "Confirm karo."
+            )
+            self._state.status = AssistantStatus.IDLE
+            self._notify_state()
             return
-        self._pending_voice_command_text = transcript
+        interpretation = self._spoken_normalizer.interpret(transcript, intent_router=intent_router)
+        if interpretation.intent.intent_type is IntentType.GENERAL_COMMAND:
+            return
+        if interpretation.needs_confirmation:
+            self._pending_spoken_interpretation = interpretation
+            self._pending_voice_command_text = None
+            self._input_transcript = ""
+            self._suppress_model_output = True
+            self._state.last_response = interpretation.confirmation_prompt or "Confirm karo."
+            self._state.status = AssistantStatus.IDLE
+            logger.info(
+                "Spoken clarification requested",
+                extra={
+                    "event": "spoken_clarification_requested",
+                    "raw_transcript": transcript,
+                    "normalized_command": interpretation.normalized_text,
+                    "intent_type": interpretation.intent.intent_type.value,
+                },
+            )
+            self._notify_state()
+            return
+        self._pending_voice_command_text = interpretation.normalized_text
         self._suppress_model_output = True
         logger.info(
             "Voice command transcript detected",
             extra={
                 "event": "voice_command_detected",
                 "transcript": transcript,
-                "intent_type": intent.intent_type.value,
+                "normalized_command": interpretation.normalized_text,
+                "intent_type": interpretation.intent.intent_type.value,
             },
         )
 
@@ -681,6 +760,7 @@ class VoiceRuntime:
         self._input_transcript = ""
         self._output_transcript = ""
         self._generation_complete_received = False
+        self._pending_spoken_interpretation = None
         self._command_feedback_in_progress = False
         self._state.status = AssistantStatus.IDLE
         self._notify_state()

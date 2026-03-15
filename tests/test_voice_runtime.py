@@ -19,6 +19,7 @@ from ava.memory.bootstrap import initialize_database
 from ava.memory.database import build_engine, build_session_factory
 from ava.memory.journal import ActionJournalStore
 from ava.voice.runtime import VoiceRuntime
+from ava.voice.spoken_normalizer import SpokenInterpretation
 
 
 class FakeLiveClient:
@@ -54,9 +55,14 @@ class FakeLiveClient:
 class FakeIntentRouter:
     def parse(self, raw_text: str, source: str = "text") -> ParsedIntent:
         normalized = raw_text.lower().strip()
-        intent_type = (
-            IntentType.OPEN_BROWSER if "website kholo" in normalized else IntentType.GENERAL_COMMAND
-        )
+        if normalized in {"yes", "haan"}:
+            intent_type = IntentType.CONFIRM
+        else:
+            intent_type = (
+                IntentType.OPEN_BROWSER
+                if "website kholo" in normalized or "python.org kholo" in normalized
+                else IntentType.GENERAL_COMMAND
+            )
         return ParsedIntent(
             intent_type=intent_type,
             raw_text=raw_text,
@@ -75,6 +81,23 @@ class FakeVoiceCommandController:
         self.calls.append((raw_text, source))
         self.state.last_response = "Browser khol diya."
         return CommandResult(response_text=self.state.last_response)
+
+
+class FakeSpokenNormalizer:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def interpret(self, raw_text: str, *, intent_router) -> SpokenInterpretation:
+        self.calls.append(raw_text)
+        normalized = "python.org kholo"
+        intent = intent_router.parse(normalized, source="voice")
+        return SpokenInterpretation(
+            raw_text=raw_text,
+            normalized_text=normalized,
+            intent=intent,
+            needs_confirmation=True,
+            confirmation_prompt="Aap `python.org` bol rahe the na?",
+        )
 
 
 @dataclass(slots=True)
@@ -301,3 +324,80 @@ def test_voice_runtime_detects_partial_spoken_command_before_final_boundary(tmp_
     assert controller.calls == [("website kholo", "voice")]
     assert state.last_response == "Browser khol diya."
     assert state.status is AssistantStatus.IDLE
+
+
+def test_voice_runtime_requests_spoken_clarification_before_execution(tmp_path) -> None:
+    settings = Settings(_env_file=None, gemini_api_key="test-key")
+    state = AssistantState()
+    journal = _build_journal(tmp_path)
+    live_client = FakeLiveClient(
+        receive_events=[
+            TranscriptEvent(text="Pyt hon.org", is_input=True, is_final=False),
+            TurnBoundaryEvent(phase="turn_complete", reason="stop"),
+        ]
+    )
+    audio_gateway = FakeAudioGateway(played_chunks=[])
+    controller = FakeVoiceCommandController(state)
+    normalizer = FakeSpokenNormalizer()
+    runtime = VoiceRuntime(
+        settings=settings,
+        state=state,
+        journal=journal,
+        live_client=live_client,
+        audio_gateway=audio_gateway,
+        command_controller=controller,
+        spoken_command_normalizer=normalizer,
+    )
+
+    async def scenario() -> None:
+        await runtime.begin_manual_capture()
+        await runtime.end_manual_capture()
+        receive_task = runtime._receive_task
+        assert receive_task is not None
+        await receive_task
+
+    asyncio.run(scenario())
+
+    assert "Pyt hon.org" in normalizer.calls
+    assert controller.calls == []
+
+
+def test_voice_runtime_preserves_spoken_clarification_across_manual_recapture(tmp_path) -> None:
+    settings = Settings(_env_file=None, gemini_api_key="test-key")
+    state = AssistantState()
+    journal = _build_journal(tmp_path)
+    live_client = FakeLiveClient(
+        receive_events=[
+            TranscriptEvent(text="yes", is_input=True, is_final=True),
+            TurnBoundaryEvent(phase="turn_complete", reason="stop"),
+        ]
+    )
+    audio_gateway = FakeAudioGateway(played_chunks=[])
+    controller = FakeVoiceCommandController(state)
+    runtime = VoiceRuntime(
+        settings=settings,
+        state=state,
+        journal=journal,
+        live_client=live_client,
+        audio_gateway=audio_gateway,
+        command_controller=controller,
+    )
+    runtime._pending_spoken_interpretation = SpokenInterpretation(
+        raw_text="Pyt hon.org",
+        normalized_text="python.org kholo",
+        intent=controller.intent_router.parse("python.org kholo", source="voice"),
+        needs_confirmation=True,
+        confirmation_prompt="Aap `python.org` bol rahe the na?",
+    )
+
+    async def scenario() -> None:
+        await runtime.begin_manual_capture()
+        assert state.last_response == "Aap `python.org` bol rahe the na?"
+        await runtime.end_manual_capture()
+        receive_task = runtime._receive_task
+        assert receive_task is not None
+        await receive_task
+
+    asyncio.run(scenario())
+
+    assert controller.calls == [("python.org kholo", "voice")]

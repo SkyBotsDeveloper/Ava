@@ -170,6 +170,17 @@ class FakeSacrificialBrowserController:
         )
         return self.current_page
 
+    def search_youtube(self, search_query: str) -> BrowserPageState:
+        self.current_page = BrowserPageState(
+            title="YouTube results",
+            url=f"https://www.youtube.com/results?search_query={search_query}",
+            tab_count=1,
+            active_tab_index=0,
+            browser_name="edge",
+            isolated=True,
+        )
+        return self.current_page
+
     def search_and_play_youtube_playlist(self, search_query: str) -> PlaybackResult:
         self.current_page = BrowserPageState(
             title="YouTube",
@@ -285,6 +296,19 @@ def test_controller_routes_browser_commands_into_isolated_session(tmp_path: Path
 
     assert open_result.response_text == "YouTube khol diya."
     assert search_result.response_text == "Current page par `YouTube` search kar diya."
+
+
+def test_controller_routes_youtube_search_into_isolated_session(tmp_path: Path) -> None:
+    fake_sacrificial = FakeSacrificialBrowserController()
+    controller = _build_controller(
+        tmp_path,
+        browser_command_mode="isolated",
+        sacrificial_controller=fake_sacrificial,
+    )
+
+    result = controller.handle_text_command("YouTube par lofi hip hop playlist search karo")
+
+    assert result.response_text == "YouTube par `lofi hip hop playlist` search kar diya."
 
 
 def test_controller_requires_confirmation_for_close_tab_in_isolated_mode(tmp_path: Path) -> None:

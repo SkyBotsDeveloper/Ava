@@ -18,6 +18,7 @@ class IntentType(StrEnum):
     CLOSE_APP = "close_app"
     OPEN_WEBSITE = "open_website"
     OPEN_YOUTUBE = "open_youtube"
+    SEARCH_YOUTUBE = "search_youtube"
     PLAY_YOUTUBE_PLAYLIST = "play_youtube_playlist"
     OPEN_INSTAGRAM_LOGIN = "open_instagram_login"
     OPEN_WHATSAPP_WEB = "open_whatsapp_web"

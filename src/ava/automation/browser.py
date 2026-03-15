@@ -184,6 +184,11 @@ class BrowserController:
     def open_youtube(self) -> BrowserPageState:
         return self.open_url("https://www.youtube.com")
 
+    def search_youtube(self, search_query: str) -> BrowserPageState:
+        return self.open_url(
+            f"https://www.youtube.com/results?search_query={quote_plus(search_query)}"
+        )
+
     def play_youtube_playlist(self, search_query: str) -> PlaybackResult:
         plan = self.resolve_browser_plan()
         if plan.uses_isolated_session:

@@ -79,6 +79,15 @@ def test_youtube_playlist_intent_detected() -> None:
     assert intent.metadata["query"] == "lofi hip hop"
 
 
+def test_youtube_search_intent_detected() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("YouTube par lofi hip hop playlist search karo")
+
+    assert intent.intent_type is IntentType.SEARCH_YOUTUBE
+    assert intent.metadata["query"] == "lofi hip hop playlist"
+
+
 def test_instagram_login_intent_detected() -> None:
     router = IntentRouter()
 

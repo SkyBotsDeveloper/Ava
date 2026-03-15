@@ -41,6 +41,7 @@ class ActionExecutor:
             IntentType.SEARCH_PAGE,
             IntentType.GET_CURRENT_PAGE,
             IntentType.OPEN_YOUTUBE,
+            IntentType.SEARCH_YOUTUBE,
             IntentType.PLAY_YOUTUBE_PLAYLIST,
             IntentType.OPEN_INSTAGRAM_LOGIN,
             IntentType.OPEN_WHATSAPP_WEB,
@@ -84,6 +85,12 @@ class ActionExecutor:
                 return ExecutionPreview(
                     "play_youtube_playlist",
                     f"YouTube par `{query}` playlist search karke play karenge.",
+                )
+            if intent.intent_type is IntentType.SEARCH_YOUTUBE:
+                query = intent.metadata.get("query", "search")
+                return ExecutionPreview(
+                    "search_youtube",
+                    f"YouTube par `{query}` search karenge.",
                 )
             if intent.intent_type is IntentType.OPEN_INSTAGRAM_LOGIN:
                 detail = (
@@ -205,6 +212,15 @@ class ActionExecutor:
                 success=True,
                 detail="YouTube khol diya.",
                 data=page.as_dict(),
+            )
+
+        if intent.intent_type is IntentType.SEARCH_YOUTUBE:
+            page = self.browser_controller.search_youtube(intent.metadata["query"])
+            return ExecutionResult(
+                action_name="search_youtube",
+                success=True,
+                detail=f"YouTube par `{intent.metadata['query']}` search kar diya.",
+                data=page.as_dict() | {"query": intent.metadata["query"]},
             )
 
         if intent.intent_type is IntentType.PLAY_YOUTUBE_PLAYLIST:
