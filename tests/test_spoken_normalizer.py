@@ -24,6 +24,64 @@ def test_spoken_normalizer_preserves_known_domain_phrase() -> None:
     assert interpretation.intent.metadata["url"] == "https://github.com"
 
 
+def test_spoken_normalizer_promotes_bare_app_target_to_open_command() -> None:
+    normalizer = SpokenCommandNormalizer()
+
+    interpretation = normalizer.interpret("cal cu la tor", intent_router=IntentRouter())
+
+    assert interpretation.normalized_text == "calculator kholo"
+    assert interpretation.intent.intent_type is IntentType.OPEN_APP
+    assert interpretation.intent.metadata["app_name"] == "calculator"
+
+
+def test_spoken_normalizer_repairs_fragmented_documents_phrase() -> None:
+    normalizer = SpokenCommandNormalizer()
+
+    interpretation = normalizer.interpret("do cu ment s", intent_router=IntentRouter())
+
+    assert interpretation.normalized_text == "documents kholo"
+    assert interpretation.intent.intent_type is IntentType.OPEN_FOLDER
+    assert interpretation.intent.metadata["target_name"] == "documents"
+
+
+def test_spoken_normalizer_repairs_fragmented_desktop_phrase() -> None:
+    normalizer = SpokenCommandNormalizer()
+
+    interpretation = normalizer.interpret("des ktop", intent_router=IntentRouter())
+
+    assert interpretation.normalized_text == "desktop kholo"
+    assert interpretation.intent.intent_type is IntentType.OPEN_FOLDER
+    assert interpretation.intent.metadata["target_name"] == "desktop"
+
+
+def test_spoken_normalizer_repairs_fragmented_window_maximize_phrase() -> None:
+    normalizer = SpokenCommandNormalizer()
+
+    interpretation = normalizer.interpret("is Wi ndow KO max imi ze", intent_router=IntentRouter())
+
+    assert interpretation.normalized_text == "is window ko maximize"
+    assert interpretation.intent.intent_type is IntentType.MAXIMIZE_WINDOW
+
+
+def test_spoken_normalizer_repairs_fragmented_focus_current_app_phrase() -> None:
+    normalizer = SpokenCommandNormalizer()
+
+    interpretation = normalizer.interpret("is up par fo cus caro", intent_router=IntentRouter())
+
+    assert interpretation.normalized_text == "is app par focus karo"
+    assert interpretation.intent.intent_type is IntentType.FOCUS_APP
+    assert interpretation.intent.metadata["use_active_app_context"] == "true"
+
+
+def test_spoken_normalizer_repairs_fragmented_next_window_phrase() -> None:
+    normalizer = SpokenCommandNormalizer()
+
+    interpretation = normalizer.interpret("Ne xt wi ndow", intent_router=IntentRouter())
+
+    assert interpretation.normalized_text == "next window"
+    assert interpretation.intent.intent_type is IntentType.NEXT_WINDOW
+
+
 def test_spoken_normalizer_requests_confirmation_for_long_search_query() -> None:
     normalizer = SpokenCommandNormalizer()
 

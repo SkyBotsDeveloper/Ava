@@ -365,6 +365,42 @@ def test_voice_runtime_detects_partial_spoken_command_before_final_boundary(tmp_
     assert state.status is AssistantStatus.IDLE
 
 
+def test_voice_runtime_waits_past_partial_no_for_fragmented_notepad_command(tmp_path) -> None:
+    settings = Settings(_env_file=None, gemini_api_key="test-key")
+    state = AssistantState()
+    journal = _build_journal(tmp_path)
+    live_client = FakeLiveClient(
+        receive_events=[
+            TranscriptEvent(text="No", is_input=True, is_final=False),
+            TranscriptEvent(text="No te pad Colo.", is_input=True, is_final=False),
+            TurnBoundaryEvent(phase="turn_complete", reason="stop"),
+        ]
+    )
+    audio_gateway = FakeAudioGateway(played_chunks=[])
+    controller = FakeVoiceCommandController(state)
+    runtime = VoiceRuntime(
+        settings=settings,
+        state=state,
+        journal=journal,
+        live_client=live_client,
+        audio_gateway=audio_gateway,
+        command_controller=controller,
+    )
+
+    async def scenario() -> None:
+        await runtime.begin_manual_capture()
+        await runtime.end_manual_capture()
+        receive_task = runtime._receive_task
+        assert receive_task is not None
+        await receive_task
+
+    asyncio.run(scenario())
+
+    assert controller.calls == [("notepad kholo", "voice")]
+    assert state.last_response == "Browser khol diya."
+    assert state.status is AssistantStatus.IDLE
+
+
 def test_voice_runtime_requests_spoken_clarification_before_execution(tmp_path) -> None:
     settings = Settings(_env_file=None, gemini_api_key="test-key")
     state = AssistantState()

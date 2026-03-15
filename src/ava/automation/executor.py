@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from ava.automation.browser import BrowserController
@@ -119,6 +120,15 @@ class ActionExecutor:
                 intent.intent_type.value,
                 f"{app_name.title()} par action hoga.",
             )
+        if intent.intent_type is IntentType.FOCUS_APP:
+            app_name = intent.metadata.get("app_name", "current app")
+            return ExecutionPreview("focus_app", f"{app_name.title()} par focus karenge.")
+        if intent.intent_type is IntentType.MINIMIZE_WINDOW:
+            return ExecutionPreview("minimize_window", "Current window minimize karenge.")
+        if intent.intent_type is IntentType.MAXIMIZE_WINDOW:
+            return ExecutionPreview("maximize_window", "Current window maximize karenge.")
+        if intent.intent_type is IntentType.NEXT_WINDOW:
+            return ExecutionPreview("next_window", "Agli window par switch karenge.")
         if intent.intent_type in {IntentType.CREATE_FOLDER, IntentType.CREATE_FILE}:
             target_name = intent.metadata.get("target_name", "new item")
             return ExecutionPreview(intent.intent_type.value, f"`{target_name}` create hoga.")
@@ -290,17 +300,22 @@ class ActionExecutor:
 
         if intent.intent_type is IntentType.OPEN_APP:
             app_name = intent.metadata["app_name"]
-            self.window_controller.launch_app(app_name)
+            process = self.window_controller.launch_app(app_name)
             return ExecutionResult(
                 action_name="open_app",
                 success=True,
                 detail=f"{app_name.title()} khol diya.",
-                data={"app_name": app_name},
+                data={"app_name": app_name, "pid": str(process.pid) if process is not None else ""},
             )
 
         if intent.intent_type is IntentType.CLOSE_APP:
             app_name = intent.metadata["app_name"]
-            terminated = self.window_controller.close_app(app_name)
+            preferred_pid = (
+                int(intent.metadata["preferred_pid"])
+                if intent.metadata.get("preferred_pid")
+                else None
+            )
+            terminated = self.window_controller.close_app(app_name, preferred_pid=preferred_pid)
             success = terminated > 0
             detail = (
                 f"{app_name.title()} band kar diya."
@@ -311,11 +326,21 @@ class ActionExecutor:
                 action_name="close_app",
                 success=success,
                 detail=detail,
-                data={"app_name": app_name, "terminated": str(terminated)},
+                data={
+                    "app_name": app_name,
+                    "terminated": str(terminated),
+                    "preferred_pid": str(preferred_pid or ""),
+                },
             )
 
         if intent.intent_type is IntentType.CREATE_FOLDER:
-            target = self.window_controller.create_folder(intent.metadata["target_name"])
+            base_dir = (
+                Path(intent.metadata["base_dir"]) if intent.metadata.get("base_dir") else None
+            )
+            target = self.window_controller.create_folder(
+                intent.metadata["target_name"],
+                base_dir=base_dir,
+            )
             return ExecutionResult(
                 action_name="create_folder",
                 success=True,
@@ -324,7 +349,13 @@ class ActionExecutor:
             )
 
         if intent.intent_type is IntentType.CREATE_FILE:
-            target = self.window_controller.create_file(intent.metadata["target_name"])
+            base_dir = (
+                Path(intent.metadata["base_dir"]) if intent.metadata.get("base_dir") else None
+            )
+            target = self.window_controller.create_file(
+                intent.metadata["target_name"],
+                base_dir=base_dir,
+            )
             return ExecutionResult(
                 action_name="create_file",
                 success=True,
@@ -354,6 +385,43 @@ class ActionExecutor:
                 success=True,
                 detail=f"Move kar diya: {target.name}",
                 data={"path": str(target)},
+            )
+
+        if intent.intent_type is IntentType.FOCUS_APP:
+            app_name = intent.metadata["app_name"]
+            info = self.window_controller.focus_app_window(app_name)
+            return ExecutionResult(
+                action_name="focus_app",
+                success=True,
+                detail=f"{app_name.title()} par focus kar diya.",
+                data={"app_name": app_name} | info,
+            )
+
+        if intent.intent_type is IntentType.MINIMIZE_WINDOW:
+            info = self.window_controller.minimize_foreground_window()
+            return ExecutionResult(
+                action_name="minimize_window",
+                success=True,
+                detail="Current window minimize kar diya.",
+                data=info,
+            )
+
+        if intent.intent_type is IntentType.MAXIMIZE_WINDOW:
+            info = self.window_controller.maximize_foreground_window()
+            return ExecutionResult(
+                action_name="maximize_window",
+                success=True,
+                detail="Current window maximize kar diya.",
+                data=info,
+            )
+
+        if intent.intent_type is IntentType.NEXT_WINDOW:
+            info = self.window_controller.activate_next_window()
+            return ExecutionResult(
+                action_name="next_window",
+                success=True,
+                detail="Next window par aa gayi.",
+                data=info,
             )
 
         return ExecutionResult(

@@ -29,6 +29,8 @@ except ImportError:  # pragma: no cover - optional automation dependency
     win32clipboard = None
 
 _SW_RESTORE: Final = 9
+_SW_MINIMIZE: Final = 6
+_SW_MAXIMIZE: Final = 3
 _VK_CONTROL: Final = 0x11
 _VK_RETURN: Final = 0x0D
 _VK_TAB: Final = 0x09
@@ -38,6 +40,7 @@ _VK_F: Final = 0x46
 _VK_T: Final = 0x54
 _VK_V: Final = 0x56
 _VK_SHIFT: Final = 0x10
+_VK_MENU: Final = 0x12
 _VK_C: Final = 0x43
 _VK_ESCAPE: Final = 0x1B
 _WM_CHAR: Final = 0x0102
@@ -115,7 +118,7 @@ _APP_SPECS: Final[dict[str, AppLaunchSpec]] = {
 
 _APP_PROCESS_NAMES: Final[dict[str, tuple[str, ...]]] = {
     "notepad": ("notepad.exe",),
-    "calculator": ("calculatorapp.exe", "win32calc.exe"),
+    "calculator": ("calculatorapp.exe", "win32calc.exe", "calc.exe"),
     "paint": ("mspaint.exe",),
     "explorer": ("explorer.exe",),
     "command prompt": ("cmd.exe", "conhost.exe"),
@@ -180,13 +183,15 @@ class WindowController:
                 return subprocess.Popen([str(candidate)])
         raise FileNotFoundError(f"{app_name} executable not found on this machine.")
 
-    def close_app(self, app_name: str) -> int:
+    def close_app(self, app_name: str, *, preferred_pid: int | None = None) -> int:
         process_names = _APP_PROCESS_NAMES.get(app_name)
         if process_names is None:
             raise ValueError(f"Unsupported app `{app_name}`.")
 
         terminated = 0
         for proc in psutil.process_iter(["name"]):
+            if preferred_pid is not None and proc.pid != preferred_pid:
+                continue
             name = (proc.info.get("name") or "").lower()
             if name not in process_names:
                 continue
@@ -202,6 +207,61 @@ class WindowController:
             extra={"event": "windows_app_closed", "app_name": app_name, "terminated": terminated},
         )
         return terminated
+
+    def focus_app_window(self, app_name: str) -> dict[str, str | bool | int]:
+        process_names = _APP_PROCESS_NAMES.get(app_name)
+        if process_names is None:
+            raise ValueError(f"Unsupported app `{app_name}`.")
+        hwnd = self.focus_window_for_processes(process_names)
+        if hwnd is None:
+            raise RuntimeError(f"{app_name} ka window focus nahi ho saka.")
+        info = self._window_info(hwnd)
+        logger.info(
+            "Focused app window",
+            extra={"event": "app_window_focused", "app_name": app_name, **info},
+        )
+        return info
+
+    def minimize_foreground_window(self) -> dict[str, str | bool | int]:
+        hwnd = self._foreground_window_handle()
+        if hwnd is None:
+            raise RuntimeError("Foreground window nahi mila.")
+        self._user32.ShowWindow(hwnd, _SW_MINIMIZE)
+        time.sleep(0.2)
+        info = self._window_info(hwnd)
+        logger.info("Foreground window minimized", extra={"event": "window_minimized", **info})
+        return info
+
+    def maximize_foreground_window(self) -> dict[str, str | bool | int]:
+        hwnd = self._foreground_window_handle()
+        if hwnd is None:
+            raise RuntimeError("Foreground window nahi mila.")
+        self._user32.ShowWindow(hwnd, _SW_MAXIMIZE)
+        time.sleep(0.2)
+        info = self._window_info(hwnd)
+        logger.info("Foreground window maximized", extra={"event": "window_maximized", **info})
+        return info
+
+    def activate_next_window(self) -> dict[str, str | bool | int]:
+        hwnd = self._foreground_window_handle()
+        if hwnd is None:
+            raise RuntimeError("Foreground window nahi mila.")
+        if send_keys is not None:
+            send_keys("%{ESC}", pause=0.02)
+        else:
+            self._post_hotkey(hwnd, (_VK_MENU,), _VK_ESCAPE)
+        time.sleep(0.35)
+        info = self.foreground_window_info()
+        if info is None:
+            raise RuntimeError("Next window activate nahi ho saka.")
+        logger.info("Switched to next window", extra={"event": "next_window_activated", **info})
+        return info
+
+    def foreground_window_info(self) -> dict[str, str | bool | int] | None:
+        hwnd = self._foreground_window_handle()
+        if hwnd is None:
+            return None
+        return self._window_info(hwnd)
 
     def open_folder(self, target_name: str) -> Path:
         target = self.resolve_path(target_name, must_exist=True)
@@ -497,6 +557,28 @@ class WindowController:
             time.sleep(0.25)
         return hwnd
 
+    def _foreground_window_handle(self) -> int | None:
+        hwnd = int(self._user32.GetForegroundWindow())
+        return hwnd or None
+
+    def _window_info(self, hwnd: int) -> dict[str, str | bool | int]:
+        pid = ctypes.c_ulong()
+        self._user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        process_name = ""
+        if pid.value:
+            try:
+                process_name = psutil.Process(pid.value).name().lower()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                process_name = ""
+        return {
+            "hwnd": hwnd,
+            "title": self._window_title(hwnd),
+            "pid": int(pid.value),
+            "process_name": process_name,
+            "is_minimized": bool(self._user32.IsIconic(hwnd)),
+            "is_maximized": bool(self._user32.IsZoomed(hwnd)),
+        }
+
     def _window_title(self, hwnd: int) -> str:
         length = int(self._user32.GetWindowTextLengthW(hwnd))
         buffer = ctypes.create_unicode_buffer(length + 1)
@@ -638,6 +720,13 @@ def browser_process_names(browser_name: str) -> tuple[str, ...]:
     if browser_name == "chrome":
         return ("chrome.exe",)
     return ("msedge.exe",)
+
+
+def app_process_names(app_name: str) -> tuple[str, ...]:
+    process_names = _APP_PROCESS_NAMES.get(app_name)
+    if process_names is None:
+        raise FileNotFoundError(f"Unknown app `{app_name}`.")
+    return process_names
 
 
 def browser_executable(browser_name: str) -> Path:

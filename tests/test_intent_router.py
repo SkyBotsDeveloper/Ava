@@ -208,6 +208,86 @@ def test_known_folder_open_detected() -> None:
     assert intent.metadata["target_name"] == "desktop"
 
 
+def test_fragmented_known_folder_open_detected() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("des ktop kholo")
+
+    assert intent.intent_type is IntentType.OPEN_FOLDER
+    assert intent.metadata["target_name"] == "desktop"
+
+
+def test_contextual_file_create_detected() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("Is folder me new file banao")
+
+    assert intent.intent_type is IntentType.CREATE_FILE
+    assert intent.metadata["use_active_folder_context"] == "true"
+
+
+def test_contextual_folder_create_detected() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("Is folder me new folder banao")
+
+    assert intent.intent_type is IntentType.CREATE_FOLDER
+    assert intent.metadata["use_active_folder_context"] == "true"
+
+
+def test_contextual_file_rename_detected() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("Is file ka naam badlo ava renamed note")
+
+    assert intent.intent_type is IntentType.RENAME_PATH
+    assert intent.metadata["use_active_file_context"] == "true"
+    assert intent.metadata["new_name"] == "ava renamed note"
+
+
+def test_contextual_folder_move_detected() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("Is folder ko downloads me move karo")
+
+    assert intent.intent_type is IntentType.MOVE_PATH
+    assert intent.metadata["use_active_folder_context"] == "true"
+    assert intent.metadata["destination_name"] == "downloads"
+
+
+def test_window_minimize_intent_detected() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("Is window ko minimize karo")
+
+    assert intent.intent_type is IntentType.MINIMIZE_WINDOW
+
+
+def test_window_maximize_intent_detected() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("Is window ko maximize karo")
+
+    assert intent.intent_type is IntentType.MAXIMIZE_WINDOW
+
+
+def test_next_window_intent_detected() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("Next window par jao")
+
+    assert intent.intent_type is IntentType.NEXT_WINDOW
+
+
+def test_focus_current_app_intent_detected() -> None:
+    router = IntentRouter()
+
+    intent = router.parse("Is app par focus karo")
+
+    assert intent.intent_type is IntentType.FOCUS_APP
+    assert intent.metadata["use_active_app_context"] == "true"
+
+
 def test_reverse_page_search_intent_detected() -> None:
     router = IntentRouter()
 

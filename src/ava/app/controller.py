@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 from ava.app.state import AssistantState, AssistantStatus, BrowserTaskContext
 from ava.automation.executor import ActionExecutor
@@ -98,12 +99,26 @@ class AvaController:
             return CommandResult(self.state.last_response)
 
         self.state.last_command = cleaned
-        intent = self.intent_router.parse(cleaned, source=source)
+        intent = self._apply_execution_context(self.intent_router.parse(cleaned, source=source))
         follow_up_intent = self.resolve_browser_follow_up_intent(
             cleaned,
             parsed_intent=intent,
             source=intent.source,
         )
+
+        missing_context_message = self._missing_context_message(intent)
+        if missing_context_message is not None:
+            self.state.last_response = missing_context_message
+            self.state.status = AssistantStatus.IDLE
+            self._record_journal(
+                command_text=cleaned,
+                action_name="missing_execution_context",
+                confirmation_status=ConfirmationStatus.NOT_NEEDED,
+                result_status=ResultStatus.FAILURE,
+                source=intent.source,
+                details={"intent_type": intent.intent_type.value},
+            )
+            return CommandResult(self.state.last_response)
 
         if intent.intent_type is IntentType.CONFIRM:
             return self._handle_confirmation(True)
@@ -313,6 +328,8 @@ class AvaController:
         self.state.status = AssistantStatus.IDLE
         self.state.last_response = result.detail
         self._sync_browser_task_context(intent=intent, result=result)
+        self._sync_filesystem_context(intent=intent, result=result)
+        self._sync_app_context(intent=intent, result=result)
         if result.success and bool((result.data or {}).get("action_verified")):
             logger.info(
                 "Generated verified action acknowledgment",
@@ -598,6 +615,175 @@ class AvaController:
             },
         )
         self.state.active_browser_task = None
+
+    def _apply_execution_context(self, intent: ParsedIntent) -> ParsedIntent:
+        metadata = dict(intent.metadata)
+        filesystem = self.state.filesystem_context
+        app_context = self.state.app_context
+
+        if intent.intent_type in {IntentType.CREATE_FILE, IntentType.CREATE_FOLDER} and (
+            metadata.get("use_active_folder_context") == "true"
+        ):
+            base_dir = filesystem.current_folder_path or str(Path.cwd())
+            metadata["base_dir"] = base_dir
+            if not metadata.get("target_name"):
+                metadata["target_name"] = self._default_item_name(
+                    intent.intent_type,
+                    base_dir=base_dir,
+                )
+
+        if intent.intent_type is IntentType.RENAME_PATH:
+            if metadata.get("use_active_file_context") == "true":
+                source_path = filesystem.last_file_path
+                if source_path:
+                    metadata["source_name"] = source_path
+                    metadata["path_kind"] = "file"
+                    metadata["new_name"] = self._normalize_renamed_file_name(
+                        source_path,
+                        metadata.get("new_name", ""),
+                    )
+            elif metadata.get("use_active_folder_context") == "true":
+                source_path = filesystem.last_folder_path
+                if source_path:
+                    metadata["source_name"] = source_path
+                    metadata["path_kind"] = "folder"
+
+        if intent.intent_type is IntentType.MOVE_PATH:
+            if metadata.get("use_active_file_context") == "true" and filesystem.last_file_path:
+                metadata["source_name"] = filesystem.last_file_path
+                metadata["path_kind"] = "file"
+            elif (
+                metadata.get("use_active_folder_context") == "true" and filesystem.last_folder_path
+            ):
+                metadata["source_name"] = filesystem.last_folder_path
+                metadata["path_kind"] = "folder"
+
+        if intent.intent_type in {IntentType.CLOSE_APP, IntentType.FOCUS_APP}:
+            if metadata.get("use_active_app_context") == "true" and app_context.app_name:
+                metadata["app_name"] = app_context.app_name
+            if (
+                intent.intent_type is IntentType.CLOSE_APP
+                and metadata.get("app_name") == app_context.app_name
+                and app_context.pid
+            ):
+                metadata["preferred_pid"] = str(app_context.pid)
+
+        if metadata == intent.metadata:
+            return intent
+        return ParsedIntent(
+            intent_type=intent.intent_type,
+            raw_text=intent.raw_text,
+            normalized_text=intent.normalized_text,
+            source=intent.source,
+            immediate=intent.immediate,
+            metadata=metadata,
+        )
+
+    def _missing_context_message(self, intent: ParsedIntent) -> str | None:
+        metadata = intent.metadata
+        filesystem = self.state.filesystem_context
+        app_context = self.state.app_context
+
+        if intent.intent_type in {IntentType.CREATE_FILE, IntentType.CREATE_FOLDER} and (
+            metadata.get("use_active_folder_context") == "true"
+        ):
+            if not filesystem.current_folder_path:
+                return "Pehle folder kholo, phir is folder me item banao."
+
+        if intent.intent_type is IntentType.RENAME_PATH:
+            if metadata.get("use_active_file_context") == "true" and not filesystem.last_file_path:
+                return "Pehle file create ya select karo, phir naam badalungi."
+            if (
+                metadata.get("use_active_folder_context") == "true"
+                and not filesystem.last_folder_path
+            ):
+                return "Pehle folder create ya open karo, phir naam badalungi."
+
+        if intent.intent_type is IntentType.MOVE_PATH:
+            if metadata.get("use_active_file_context") == "true" and not filesystem.last_file_path:
+                return "Pehle file create ya select karo, phir move karungi."
+            if (
+                metadata.get("use_active_folder_context") == "true"
+                and not filesystem.last_folder_path
+            ):
+                return "Pehle folder create ya select karo, phir move karungi."
+
+        if intent.intent_type is IntentType.FOCUS_APP and not metadata.get("app_name"):
+            if not app_context.app_name:
+                return "Pehle app kholo ya uska naam bolo, phir focus karungi."
+
+        return None
+
+    def _sync_filesystem_context(self, *, intent: ParsedIntent, result) -> None:
+        if not result.success:
+            return
+        data = result.data or {}
+        filesystem = self.state.filesystem_context
+        path = str(data.get("path", ""))
+        if intent.intent_type is IntentType.OPEN_FOLDER and path:
+            filesystem.current_folder_path = path
+            filesystem.last_folder_path = path
+            return
+        if intent.intent_type is IntentType.CREATE_FILE and path:
+            filesystem.last_file_path = path
+            filesystem.current_folder_path = str(Path(path).parent)
+            return
+        if intent.intent_type is IntentType.CREATE_FOLDER and path:
+            filesystem.last_folder_path = path
+            base_dir = intent.metadata.get("base_dir")
+            if base_dir:
+                filesystem.current_folder_path = base_dir
+            return
+        if intent.intent_type in {IntentType.RENAME_PATH, IntentType.MOVE_PATH} and path:
+            path_kind = intent.metadata.get("path_kind", "")
+            if path_kind == "file":
+                filesystem.last_file_path = path
+                filesystem.current_folder_path = str(Path(path).parent)
+            elif path_kind == "folder":
+                filesystem.last_folder_path = path
+
+    def _sync_app_context(self, *, intent: ParsedIntent, result) -> None:
+        if not result.success:
+            return
+        app_context = self.state.app_context
+        data = result.data or {}
+        if intent.intent_type is IntentType.OPEN_APP:
+            app_context.app_name = str(data.get("app_name", ""))
+            app_context.pid = int(data.get("pid", "0") or 0)
+            return
+        if intent.intent_type is IntentType.FOCUS_APP:
+            app_context.app_name = str(data.get("app_name", app_context.app_name))
+            pid_value = str(data.get("pid", "")) or str(app_context.pid)
+            app_context.pid = int(pid_value or 0)
+            return
+        if (
+            intent.intent_type is IntentType.CLOSE_APP
+            and str(data.get("app_name", "")) == app_context.app_name
+        ):
+            app_context.app_name = ""
+            app_context.pid = 0
+
+    @staticmethod
+    def _default_item_name(intent_type: IntentType, *, base_dir: str) -> str:
+        existing_names = {path.name.lower() for path in Path(base_dir).glob("*")}
+        stem = "ava-note" if intent_type is IntentType.CREATE_FILE else "ava-folder"
+        suffix = ".txt" if intent_type is IntentType.CREATE_FILE else ""
+        candidate = f"{stem}{suffix}"
+        counter = 1
+        while candidate.lower() in existing_names:
+            counter += 1
+            candidate = f"{stem}-{counter}{suffix}"
+        return candidate
+
+    @staticmethod
+    def _normalize_renamed_file_name(source_path: str, new_name: str) -> str:
+        cleaned = " ".join(new_name.split()).strip(" .")
+        if not cleaned:
+            return cleaned
+        source_suffix = Path(source_path).suffix
+        if "." not in Path(cleaned).name and source_suffix:
+            return f"{cleaned}{source_suffix}"
+        return cleaned
 
     @staticmethod
     def _looks_like_youtube_retry(normalized_text: str, context: BrowserTaskContext) -> bool:

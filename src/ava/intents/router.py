@@ -15,7 +15,24 @@ class IntentRouter:
         (r"\bwe\s*b\s*site\b", "website"),
         (r"\bwe\s+bsite\b", "website"),
         (r"\bbsite\b", "website"),
+        (r"\bnote\s*pad\b", "notepad"),
+        (r"\bno\s*te\s*pad\b", "notepad"),
+        (r"\bno\s*te\s*pa\s*d\b", "notepad"),
+        (r"\bnote\s*book\b", "notepad"),
+        (r"\bcalcu\s*lator\b", "calculator"),
+        (r"\bcal\s*cu\s*la\s*tor\b", "calculator"),
+        (r"\bdocu\s*ments\b", "documents"),
+        (r"\bdo\s*cu\s*ment\s*s\b", "documents"),
+        (r"\bdown\s*loads\b", "downloads"),
+        (r"\bdown\s*load\s*s\b", "downloads"),
+        (r"\bdesk\s*top\b", "desktop"),
+        (r"\bdes\s*ktop\b", "desktop"),
+        (r"\bpa\s*int\b", "paint"),
+        (r"\bfo\s*lder\b", "folder"),
+        (r"\bfi\s*le\b", "file"),
+        (r"\bis\s*up\b", "is app"),
         (r"\byou\s*tu\s*be\b", "youtube"),
+        (r"\bne\s*xt\b", "next"),
         (r"\bta\s*p\b", "tab"),
         (r"\bsear\s*ch\b", "search"),
         (r"\bsho\s*w\b", "show"),
@@ -27,6 +44,15 @@ class IntentRouter:
         (r"\blo\s*gin\b", "login"),
         (r"\bwha\s*tsapp\b", "whatsapp"),
         (r"\bad\s*dre\s*ss\s*(?:bar|ball)\b", "address bar"),
+        (r"\bmini\s*mize\b", "minimize"),
+        (r"\bmin\s*imi\s*ze\b", "minimize"),
+        (r"\bmaxi\s*mize\b", "maximize"),
+        (r"\bmax\s*imi\s*ze\b", "maximize"),
+        (r"\bwin\s*dow\b", "window"),
+        (r"\bwi\s*ndow\b", "window"),
+        (r"\bfo\s*cus\b", "focus"),
+        (r"\bca\s*ro\b", "karo"),
+        (r"\bco\s*ro\b", "karo"),
         (r"\bpar\s+jo\b", "par jao"),
         (r"\bcolo\b", "kholo"),
         (r"\bholo\b", "kholo"),
@@ -102,6 +128,9 @@ class IntentRouter:
             self._parse_focus_address_bar,
             self._parse_new_tab,
             self._parse_switch_tab,
+            self._parse_window_state,
+            self._parse_next_window,
+            self._parse_focus_app,
             self._parse_youtube_search,
             self._parse_youtube_playlist,
             self._parse_instagram_login,
@@ -109,8 +138,8 @@ class IntentRouter:
             self._parse_close_tab,
             self._parse_move_path,
             self._parse_rename_path,
-            self._parse_create_folder,
             self._parse_create_file,
+            self._parse_create_folder,
             self._parse_open_folder,
             self._parse_app_intent_close,
             self._parse_website_intent,
@@ -341,12 +370,70 @@ class IntentRouter:
             return ParsedIntent(IntentType.CLOSE_TAB, raw_text, normalized, source=source)
         return None
 
+    def _parse_window_state(
+        self,
+        raw_text: str,
+        normalized: str,
+        source: str,
+    ) -> ParsedIntent | None:
+        if "window" not in normalized:
+            return None
+        if "minimize" in normalized:
+            return ParsedIntent(IntentType.MINIMIZE_WINDOW, raw_text, normalized, source=source)
+        if "maximize" in normalized:
+            return ParsedIntent(IntentType.MAXIMIZE_WINDOW, raw_text, normalized, source=source)
+        return None
+
+    def _parse_next_window(
+        self,
+        raw_text: str,
+        normalized: str,
+        source: str,
+    ) -> ParsedIntent | None:
+        if "window" not in normalized:
+            return None
+        if any(token in normalized for token in ("next", "agla", "next window", "next par ja")):
+            return ParsedIntent(IntentType.NEXT_WINDOW, raw_text, normalized, source=source)
+        return None
+
+    def _parse_focus_app(
+        self,
+        raw_text: str,
+        normalized: str,
+        source: str,
+    ) -> ParsedIntent | None:
+        if "focus" not in normalized and "par jao" not in normalized:
+            return None
+
+        if "is app" in normalized:
+            return ParsedIntent(
+                IntentType.FOCUS_APP,
+                raw_text,
+                normalized,
+                source=source,
+                metadata={"use_active_app_context": "true"},
+            )
+
+        for alias, app_name in self.APP_ALIASES.items():
+            if alias in normalized and ("focus" in normalized or f"{alias} par jao" in normalized):
+                return ParsedIntent(
+                    IntentType.FOCUS_APP,
+                    raw_text,
+                    normalized,
+                    source=source,
+                    metadata={"app_name": app_name},
+                )
+        return None
+
     def _parse_move_path(
         self,
         raw_text: str,
         normalized: str,
         source: str,
     ) -> ParsedIntent | None:
+        contextual_intent = self._parse_contextual_move(raw_text, normalized, source)
+        if contextual_intent is not None:
+            return contextual_intent
         if not (
             normalized.startswith("move ")
             or any(token in normalized for token in (" move ", " shift", "le ja", "bhej"))
@@ -369,6 +456,9 @@ class IntentRouter:
         normalized: str,
         source: str,
     ) -> ParsedIntent | None:
+        contextual_intent = self._parse_contextual_rename(raw_text, normalized, source)
+        if contextual_intent is not None:
+            return contextual_intent
         if not any(token in normalized for token in ("rename", "naam badal", "naam change")):
             return None
         names = self._extract_quoted_names(raw_text)
@@ -388,6 +478,18 @@ class IntentRouter:
         normalized: str,
         source: str,
     ) -> ParsedIntent | None:
+        if (
+            "is folder" in normalized
+            and "folder" in normalized
+            and any(token in normalized for token in ("create", "banao", "bana do", "new"))
+        ):
+            return ParsedIntent(
+                IntentType.CREATE_FOLDER,
+                raw_text,
+                normalized,
+                source=source,
+                metadata={"use_active_folder_context": "true"},
+            )
         if "folder" not in normalized and "directory" not in normalized:
             return None
         if not any(token in normalized for token in ("create", "banao", "bana do", "new")):
@@ -409,6 +511,18 @@ class IntentRouter:
         normalized: str,
         source: str,
     ) -> ParsedIntent | None:
+        if (
+            "is folder" in normalized
+            and "file" in normalized
+            and any(token in normalized for token in ("create", "banao", "bana do", "new"))
+        ):
+            return ParsedIntent(
+                IntentType.CREATE_FILE,
+                raw_text,
+                normalized,
+                source=source,
+                metadata={"use_active_folder_context": "true"},
+            )
         if "file" not in normalized:
             return None
         if not any(token in normalized for token in ("create", "banao", "bana do", "new")):
@@ -557,6 +671,71 @@ class IntentRouter:
             )
         return None
 
+    def _parse_contextual_rename(
+        self,
+        raw_text: str,
+        normalized: str,
+        source: str,
+    ) -> ParsedIntent | None:
+        if not any(token in normalized for token in ("naam badal", "naam change", "rename")):
+            return None
+        target_kind = ""
+        if "is file" in normalized:
+            target_kind = "file"
+        elif "is folder" in normalized:
+            target_kind = "folder"
+        if not target_kind:
+            return None
+        new_name = self._extract_contextual_new_name(raw_text, normalized)
+        if not new_name:
+            return None
+        metadata = {
+            "new_name": new_name,
+            "path_kind": target_kind,
+            f"use_active_{target_kind}_context": "true",
+        }
+        return ParsedIntent(
+            IntentType.RENAME_PATH,
+            raw_text,
+            normalized,
+            source=source,
+            metadata=metadata,
+        )
+
+    def _parse_contextual_move(
+        self,
+        raw_text: str,
+        normalized: str,
+        source: str,
+    ) -> ParsedIntent | None:
+        if not (
+            normalized.startswith("move ")
+            or any(token in normalized for token in (" move ", " shift", "le ja", "bhej"))
+        ):
+            return None
+        target_kind = ""
+        if "is file" in normalized:
+            target_kind = "file"
+        elif "is folder" in normalized:
+            target_kind = "folder"
+        if not target_kind:
+            return None
+        destination_name = self._extract_contextual_destination(raw_text, normalized)
+        if not destination_name:
+            return None
+        metadata = {
+            "destination_name": destination_name,
+            "path_kind": target_kind,
+            f"use_active_{target_kind}_context": "true",
+        }
+        return ParsedIntent(
+            IntentType.MOVE_PATH,
+            raw_text,
+            normalized,
+            source=source,
+            metadata=metadata,
+        )
+
     @classmethod
     def _extract_search_query(cls, raw_text: str) -> str | None:
         quoted = cls._extract_quoted_names(raw_text)
@@ -652,6 +831,62 @@ class IntentRouter:
             if candidate:
                 return candidate
         return None
+
+    @classmethod
+    def _extract_contextual_new_name(cls, raw_text: str, normalized: str) -> str | None:
+        patterns = (
+            (
+                r"(?i)is\s+(?:file|folder)\s+ka\s+naam\s+"
+                r"(?:badlo|badal do|change karo|rename karo)\s+(.+)$"
+            ),
+            r"(?i)rename\s+(?:this|is)\s+(?:file|folder)\s+to\s+(.+)$",
+        )
+        for text in (raw_text, normalized):
+            for pattern in patterns:
+                match = re.search(pattern, text)
+                if match:
+                    candidate = cls._clean_spoken_target(match.group(1))
+                    if candidate:
+                        return candidate
+        return None
+
+    @classmethod
+    def _extract_contextual_destination(cls, raw_text: str, normalized: str) -> str | None:
+        quoted = cls._extract_quoted_names(raw_text)
+        if quoted:
+            return quoted[0]
+
+        path_match = re.search(r"([a-zA-Z]:\\[^\"']+)", raw_text)
+        if path_match:
+            return path_match.group(1)
+
+        for alias, folder_key in cls.KNOWN_FOLDER_ALIASES.items():
+            if alias in normalized:
+                return folder_key
+
+        for text in (raw_text, normalized):
+            match = re.search(
+                (
+                    r"(?i)is\s+(?:file|folder)\s+ko\s+(.+?)\s+"
+                    r"m(?:e|ein)\s+(?:move|shift|bhej|le ja)\w*"
+                ),
+                text,
+            )
+            if match:
+                candidate = cls._clean_spoken_target(match.group(1))
+                if candidate:
+                    return candidate
+        return None
+
+    @staticmethod
+    def _clean_spoken_target(text: str) -> str:
+        cleaned = re.sub(
+            r"(?i)\b(please|abhi|yahan|folder|file|ka|ko|me|mein|into)\b",
+            "",
+            text,
+        )
+        cleaned = " ".join(cleaned.split()).strip(" .-:")
+        return cleaned
 
     @classmethod
     def _normalize_text(cls, raw_text: str) -> str:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 
@@ -25,6 +25,19 @@ class BrowserTaskContext:
 
 
 @dataclass(slots=True)
+class FilesystemTaskContext:
+    current_folder_path: str = ""
+    last_file_path: str = ""
+    last_folder_path: str = ""
+
+
+@dataclass(slots=True)
+class AppTaskContext:
+    app_name: str = ""
+    pid: int = 0
+
+
+@dataclass(slots=True)
 class AssistantState:
     status: AssistantStatus = AssistantStatus.IDLE
     muted: bool = False
@@ -32,3 +45,5 @@ class AssistantState:
     last_command: str = ""
     last_response: str = ""
     active_browser_task: BrowserTaskContext | None = None
+    filesystem_context: FilesystemTaskContext = field(default_factory=FilesystemTaskContext)
+    app_context: AppTaskContext = field(default_factory=AppTaskContext)

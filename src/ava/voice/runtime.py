@@ -701,6 +701,13 @@ class VoiceRuntime:
         intent_router = self._command_controller.intent_router
         if self._pending_spoken_interpretation is not None:
             confirmation_intent = intent_router.parse(transcript, source="voice")
+            if not final_chunk and confirmation_intent.intent_type in {
+                IntentType.CONFIRM,
+                IntentType.DENY,
+                IntentType.CANCEL,
+            }:
+                self._suppress_model_output = True
+                return
             if confirmation_intent.intent_type is IntentType.CONFIRM:
                 interpretation = self._pending_spoken_interpretation
                 self._pending_spoken_interpretation = None
@@ -750,8 +757,10 @@ class VoiceRuntime:
             follow_up_candidate is not None
         )
         if follow_up_candidate is not None:
-            self._pending_voice_command_text = transcript
             self._suppress_model_output = True
+            if not final_chunk:
+                return
+            self._pending_voice_command_text = transcript
             logger.info(
                 "Voice browser follow-up intercepted before chat fallback",
                 extra={
@@ -762,19 +771,11 @@ class VoiceRuntime:
                 },
             )
             return
-        if (
-            interpretation.intent.intent_type
-            in {
-                IntentType.SEARCH_PAGE,
-                IntentType.SEARCH_YOUTUBE,
-                IntentType.PLAY_YOUTUBE_PLAYLIST,
-            }
-            and not final_chunk
-        ):
+        if not final_chunk:
+            if interpretation.intent.intent_type is not IntentType.GENERAL_COMMAND:
+                self._suppress_model_output = True
             return
         if interpretation.intent.intent_type is IntentType.GENERAL_COMMAND:
-            return
-        if interpretation.needs_confirmation and interpretation.browser_like and not final_chunk:
             return
         if interpretation.needs_confirmation:
             self._pending_spoken_interpretation = interpretation

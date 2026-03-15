@@ -57,6 +57,7 @@ class SpokenCommandNormalizer:
         (r"\bhip\s*hop\b", "hip hop"),
         (r"\bhi\s*p\s*hop\b", "hip hop"),
         (r"\bp\s*a\s*r\b", "par"),
+        (r"\bne\s*xt\b", "next"),
         (r"\bplay\s*list\b", "playlist"),
         (r"\bpla\s*y\s*list\b", "playlist"),
         (r"\bsho\s*w\b", "show"),
@@ -64,6 +65,31 @@ class SpokenCommandNormalizer:
         (r"\bti\s*tle\b", "title"),
         (r"\bsear\s*ch\b", "search"),
         (r"\bse\s*arch\b", "search"),
+        (r"\bnote\s*pad\b", "notepad"),
+        (r"\bno\s*te\s*pad\b", "notepad"),
+        (r"\bno\s*te\s*pa\s*d\b", "notepad"),
+        (r"\bcalcu\s*lator\b", "calculator"),
+        (r"\bcal\s*cu\s*la\s*tor\b", "calculator"),
+        (r"\bcal\s*cu\s*lator\b", "calculator"),
+        (r"\bpa\s*int\b", "paint"),
+        (r"\bdown\s*loads\b", "downloads"),
+        (r"\bdown\s*load\s*s\b", "downloads"),
+        (r"\bdocu\s*ments\b", "documents"),
+        (r"\bdo\s*cu\s*ment\s*s\b", "documents"),
+        (r"\bdesk\s*top\b", "desktop"),
+        (r"\bdes\s*ktop\b", "desktop"),
+        (r"\bfo\s*lder\b", "folder"),
+        (r"\bfi\s*le\b", "file"),
+        (r"\bis\s*up\b", "is app"),
+        (r"\bmini\s*mize\b", "minimize"),
+        (r"\bmin\s*imi\s*ze\b", "minimize"),
+        (r"\bmaxi\s*mize\b", "maximize"),
+        (r"\bmax\s*imi\s*ze\b", "maximize"),
+        (r"\bwin\s*dow\b", "window"),
+        (r"\bwi\s*ndow\b", "window"),
+        (r"\bfo\s*cus\b", "focus"),
+        (r"\bca\s*ro\b", "karo"),
+        (r"\bco\s*ro\b", "karo"),
         (r"\bcolo\b", "kholo"),
         (r"\bholo\b", "kholo"),
     )
@@ -126,6 +152,7 @@ class SpokenCommandNormalizer:
             raw_text,
             normalized_text,
         )
+        normalized_text = self._promote_bare_open_target(normalized_text)
         browser_like = self.looks_browser_like(raw_text) or self.looks_browser_like(normalized_text)
         intent = intent_router.parse(normalized_text, source="voice")
         normalized_text, intent, domain_was_corrected = self._canonicalize_website_intent(
@@ -218,6 +245,20 @@ class SpokenCommandNormalizer:
                 browser_like=True,
             )
         return None
+
+    @staticmethod
+    def _promote_bare_open_target(normalized_text: str) -> str:
+        bare_target = normalized_text.strip(" .!?")
+        if not bare_target:
+            return normalized_text
+        open_targets = (
+            set(IntentRouter.APP_ALIASES)
+            | set(IntentRouter.KNOWN_FOLDER_ALIASES)
+            | set(IntentRouter.WEBSITE_ALIASES)
+        )
+        if bare_target in open_targets:
+            return f"{bare_target} kholo"
+        return normalized_text
 
     def looks_browser_like(self, text: str) -> bool:
         lowered = " ".join(text.lower().split())

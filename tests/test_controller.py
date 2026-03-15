@@ -21,6 +21,10 @@ class FakeWindowController(WindowController):
         self.base_dir = base_dir
         self.opened_apps: list[str] = []
         self.closed_apps: list[str] = []
+        self.focused_apps: list[str] = []
+        self.minimized = False
+        self.maximized = False
+        self.next_window_calls = 0
         self.closed_tabs = 0
         self.opened_folders: list[str] = []
         self.live_browser_title = "Example"
@@ -28,17 +32,68 @@ class FakeWindowController(WindowController):
 
     def launch_app(self, app_name: str):  # type: ignore[override]
         self.opened_apps.append(app_name)
-        return None
 
-    def close_app(self, app_name: str) -> int:  # type: ignore[override]
+        class _Proc:
+            pid = 4242
+
+        return _Proc()
+
+    def close_app(self, app_name: str, *, preferred_pid: int | None = None) -> int:  # type: ignore[override]
         self.closed_apps.append(app_name)
         return 1
 
+    def focus_app_window(self, app_name: str):  # type: ignore[override]
+        self.focused_apps.append(app_name)
+        return {
+            "app_name": app_name,
+            "title": f"{app_name} window",
+            "pid": 4242,
+            "process_name": f"{app_name}.exe",
+            "is_minimized": False,
+            "is_maximized": False,
+            "hwnd": 99,
+        }
+
+    def minimize_foreground_window(self):  # type: ignore[override]
+        self.minimized = True
+        self.maximized = False
+        return {
+            "title": "current window",
+            "pid": 11,
+            "process_name": "notepad.exe",
+            "is_minimized": True,
+            "is_maximized": False,
+            "hwnd": 101,
+        }
+
+    def maximize_foreground_window(self):  # type: ignore[override]
+        self.maximized = True
+        self.minimized = False
+        return {
+            "title": "current window",
+            "pid": 11,
+            "process_name": "notepad.exe",
+            "is_minimized": False,
+            "is_maximized": True,
+            "hwnd": 101,
+        }
+
+    def activate_next_window(self):  # type: ignore[override]
+        self.next_window_calls += 1
+        return {
+            "title": "next window",
+            "pid": 12,
+            "process_name": "calc.exe",
+            "is_minimized": False,
+            "is_maximized": False,
+            "hwnd": 202,
+        }
+
     def create_folder(self, folder_name: str, *, base_dir: Path | None = None) -> Path:  # type: ignore[override]
-        return super().create_folder(folder_name, base_dir=self.base_dir)
+        return super().create_folder(folder_name, base_dir=base_dir or self.base_dir)
 
     def create_file(self, file_name: str, *, base_dir: Path | None = None) -> Path:  # type: ignore[override]
-        return super().create_file(file_name, base_dir=self.base_dir)
+        return super().create_file(file_name, base_dir=base_dir or self.base_dir)
 
     def open_folder(self, target_name: str) -> Path:  # type: ignore[override]
         self.opened_folders.append(target_name)
@@ -47,14 +102,20 @@ class FakeWindowController(WindowController):
         return target
 
     def rename_path(self, source_name: str, new_name: str) -> Path:  # type: ignore[override]
-        source = self.base_dir / source_name
+        source = Path(source_name)
+        if not source.is_absolute():
+            source = self.base_dir / source
         target = source.with_name(new_name)
         source.rename(target)
         return target
 
     def move_path(self, source_name: str, destination_name: str) -> Path:  # type: ignore[override]
-        source = self.base_dir / source_name
-        destination = self.base_dir / destination_name
+        source = Path(source_name)
+        if not source.is_absolute():
+            source = self.base_dir / source
+        destination = Path(destination_name)
+        if not destination.is_absolute():
+            destination = self.base_dir / destination
         destination.mkdir(parents=True, exist_ok=True)
         target = destination / source.name
         source.rename(target)
@@ -259,6 +320,30 @@ def test_controller_creates_folder(tmp_path: Path) -> None:
     assert (tmp_path / "phase4-notes").exists()
 
 
+def test_controller_creates_file_in_active_folder_context(tmp_path: Path) -> None:
+    controller = _build_controller(tmp_path)
+    controller.handle_text_command("Documents kholo")
+
+    result = controller.handle_text_command("Is folder me new file banao", source="voice")
+
+    created_path = Path(controller.state.filesystem_context.last_file_path)
+    assert result.response_text.startswith("File bana di:")
+    assert created_path.exists()
+    assert created_path.parent.name == "documents"
+
+
+def test_controller_creates_folder_in_active_folder_context(tmp_path: Path) -> None:
+    controller = _build_controller(tmp_path)
+    controller.handle_text_command("Downloads kholo")
+
+    result = controller.handle_text_command("Is folder me new folder banao", source="voice")
+
+    created_path = Path(controller.state.filesystem_context.last_folder_path)
+    assert result.response_text.startswith("Folder bana diya:")
+    assert created_path.exists()
+    assert created_path.parent.name == "downloads"
+
+
 def test_controller_requires_confirmation_for_sensitive_command(tmp_path: Path) -> None:
     controller = _build_controller(tmp_path)
 
@@ -281,6 +366,32 @@ def test_controller_requires_confirmation_for_move(tmp_path: Path) -> None:
     assert "confirm" in first.response_text.lower()
     assert second.response_text == "Move kar diya: source-folder"
     assert (tmp_path / "dest-folder" / "source-folder").exists()
+
+
+def test_controller_renames_active_file_with_confirmation(tmp_path: Path) -> None:
+    controller = _build_controller(tmp_path)
+    controller.handle_text_command("Desktop kholo")
+    controller.handle_text_command("Is folder me new file banao", source="voice")
+
+    first = controller.handle_text_command("Is file ka naam badlo ava renamed note", source="voice")
+    second = controller.handle_text_command("haan")
+
+    assert first.confirmation_required is True
+    assert second.response_text == "Rename kar diya: ava renamed note.txt"
+    assert Path(controller.state.filesystem_context.last_file_path).name == "ava renamed note.txt"
+
+
+def test_controller_moves_active_folder_with_confirmation(tmp_path: Path) -> None:
+    controller = _build_controller(tmp_path)
+    controller.handle_text_command("Documents kholo")
+    controller.handle_text_command("Is folder me new folder banao", source="voice")
+
+    first = controller.handle_text_command("Is folder ko downloads me move karo", source="voice")
+    second = controller.handle_text_command("haan")
+
+    assert first.confirmation_required is True
+    assert second.response_text.startswith("Move kar diya:")
+    assert "downloads" in controller.state.filesystem_context.last_folder_path.lower()
 
 
 def test_controller_routes_browser_commands_into_isolated_session(tmp_path: Path) -> None:
@@ -506,3 +617,24 @@ def test_controller_requires_confirmation_for_whatsapp_web(tmp_path: Path) -> No
     assert first.confirmation_required is True
     assert "confirm" in first.response_text.lower()
     assert second.response_text == "WhatsApp Web khol diya."
+
+
+def test_controller_handles_window_actions_and_focus(tmp_path: Path) -> None:
+    controller = _build_controller(tmp_path)
+    fake_window = controller.executor.window_controller
+    assert isinstance(fake_window, FakeWindowController)
+
+    controller.handle_text_command("Paint kholo", source="voice")
+    minimize = controller.handle_text_command("Is window ko minimize karo", source="voice")
+    maximize = controller.handle_text_command("Is window ko maximize karo", source="voice")
+    next_window = controller.handle_text_command("Next window par jao", source="voice")
+    focus_app = controller.handle_text_command("Is app par focus karo", source="voice")
+
+    assert minimize.response_text == "Current window minimize kar diya."
+    assert maximize.response_text == "Current window maximize kar diya."
+    assert next_window.response_text == "Next window par aa gayi."
+    assert focus_app.response_text == "Paint par focus kar diya."
+    assert fake_window.minimized is False
+    assert fake_window.maximized is True
+    assert fake_window.next_window_calls == 1
+    assert fake_window.focused_apps == ["paint"]
